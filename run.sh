@@ -16,22 +16,47 @@ if [ "$RAILWAY_ENVIRONMENT" ] || [ "$PRODUCTION" = "true" ] || [ "$NODE_ENV" = "
 
     # Always build frontend in production
     echo "🔨 Building frontend..."
-    npm install
-    npm run build
+
+    # Install dependencies
+    echo "📦 Installing Node.js dependencies..."
+    if ! npm install; then
+        echo "❌ npm install failed!"
+        exit 1
+    fi
+
+    # Build the frontend
+    echo "🏗️ Running npm run build..."
+    if ! npm run build; then
+        echo "❌ npm run build failed! Trying force build..."
+        if ! npm run build:force; then
+            echo "❌ Force build also failed!"
+            echo "Checking for TypeScript errors..."
+            npx tsc --noEmit --skipLibCheck 2>&1 || true
+            echo "Checking npm and node versions..."
+            node --version
+            npm --version
+            exit 1
+        fi
+    fi
 
     echo "📁 Checking dist directory..."
     if [ -d "dist" ]; then
         echo "✅ dist directory exists"
-        ls -la dist/
-    else
-        echo "❌ dist directory not found!"
-        echo "📦 Installing Node.js dependencies and retrying build..."
-        npm install
-        npm run build
-        if [ ! -d "dist" ]; then
-            echo "❌ Build still failed!"
+        ls -la dist/ | head -10
+        # Check if index.html exists
+        if [ -f "dist/index.html" ]; then
+            echo "✅ index.html found in dist/"
+        else
+            echo "❌ index.html not found in dist/"
             exit 1
         fi
+    else
+        echo "❌ dist directory not found after build!"
+        echo "Checking current directory contents..."
+        ls -la
+        echo "Checking node_modules..."
+        ls -la node_modules/ | head -5
+        exit 1
     fi
 
     # Create FastF1 cache directory

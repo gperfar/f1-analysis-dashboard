@@ -128,7 +128,7 @@ const CircuitMapChart: React.FC<CircuitMapChartProps> = ({ sessionData }) => {
     // Add corner marker (circle)
     data.push({
       type: 'scatter' as const,
-      mode: 'markers' as const,
+      mode: 'markers',
       name: `Corner ${corner.label}`,
       x: [corner.text_x],
       y: [corner.text_y],
@@ -142,7 +142,7 @@ const CircuitMapChart: React.FC<CircuitMapChartProps> = ({ sessionData }) => {
     // Add corner label text
     data.push({
       type: 'scatter' as const,
-      mode: 'text' as const,
+      mode: 'text',
       name: `Corner ${corner.label}`,
       x: [corner.text_x],
       y: [corner.text_y],
@@ -169,7 +169,7 @@ const CircuitMapChart: React.FC<CircuitMapChartProps> = ({ sessionData }) => {
 
     data.push({
       type: 'scatter' as const,
-      mode: 'text' as const,
+      mode: 'text',
       name: 'Direction',
       x: [startX],
       y: [startY],
