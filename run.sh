@@ -3,8 +3,8 @@
 # F1 Analysis Dashboard - Run Script
 echo "🚀 Starting F1 Analysis Dashboard..."
 
-# Check if we're in production (Railway) or development
-if [ "$RAILWAY_ENVIRONMENT" = "production" ] || [ "$PRODUCTION" = "true" ]; then
+# Check if we're in production (Railway, Render, etc.) or development
+if [ "$RAILWAY_ENVIRONMENT" = "production" ] || [ "$PRODUCTION" = "true" ] || [ "$NODE_ENV" = "production" ]; then
     echo "🏭 Running in PRODUCTION mode"
 
     # Install Python dependencies if not already installed

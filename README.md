@@ -66,14 +66,12 @@ If you prefer to set up manually:
 
 ### Quick Deploy with Railway (Recommended - Free & Easy)
 
-1. **Create a GitHub repository:**
+1. **Push your code to GitHub:**
    ```bash
-   git init
+   cd /Users/gperfar/Projects/f1-charts
    git add .
-   git commit -m "Initial commit: F1 Analysis Dashboard"
-   git branch -M main
-   git remote add origin https://github.com/YOUR_USERNAME/f1-analysis-dashboard.git
-   git push -u origin main
+   git commit -m "Ready for deployment"
+   git push origin main
    ```
 
 2. **Create a Railway account** at [railway.app](https://railway.app)
@@ -81,10 +79,10 @@ If you prefer to set up manually:
 3. **Deploy from GitHub:**
    - Go to Railway dashboard
    - Click "New Project" → "Deploy from GitHub repo"
-   - Select your `f1-analysis-dashboard` repository
-   - Railway will automatically detect and deploy your full-stack app
+   - Select your repository
+   - Railway will automatically detect Python + Node.js and deploy
 
-4. **Get your live URL!** Railway will provide a URL like `https://your-project-name.railway.app`
+4. **Your app will be live!** URL will be something like `https://your-app-name.railway.app`
 
 ### Alternative Free Deployment Options
 
