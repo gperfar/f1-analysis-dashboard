@@ -1,0 +1,17 @@
+[phases.setup]
+  nixPkgs = ["...", "python38", "nodejs-18_x", "yarn"]
+
+[phases.install]
+  cmds = [
+    "python -m pip install --upgrade pip",
+    "pip install -r requirements.txt",
+    "npm install"
+  ]
+
+[phases.build]
+  cmds = [
+    "npm run build"
+  ]
+
+[start]
+  cmd = "./run.sh"
