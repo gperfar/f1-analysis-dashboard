@@ -7,6 +7,9 @@
     "dev": "vite",
     "build": "tsc --noEmit --skipLibCheck && vite build",
     "build:force": "vite build",
+    "build:safe": "npm run type-check && npm run build",
+    "build:ci": "npm ci && npm run build:force",
+    "type-check": "tsc --noEmit",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
   },

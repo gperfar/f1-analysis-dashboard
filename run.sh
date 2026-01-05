@@ -19,23 +19,35 @@ if [ "$RAILWAY_ENVIRONMENT" ] || [ "$PRODUCTION" = "true" ] || [ "$NODE_ENV" = "
 
     # Install dependencies
     echo "📦 Installing Node.js dependencies..."
-    if ! npm install; then
-        echo "❌ npm install failed!"
-        exit 1
+    if ! npm ci; then
+        echo "⚠️ npm ci failed, trying npm install..."
+        if ! npm install; then
+            echo "❌ Both npm ci and npm install failed!"
+            exit 1
+        fi
     fi
 
     # Build the frontend
-    echo "🏗️ Running npm run build..."
-    if ! npm run build; then
-        echo "❌ npm run build failed! Trying force build..."
-        if ! npm run build:force; then
-            echo "❌ Force build also failed!"
-            echo "Checking for TypeScript errors..."
-            npx tsc --noEmit --skipLibCheck 2>&1 || true
-            echo "Checking npm and node versions..."
-            node --version
-            npm --version
-            exit 1
+    echo "🏗️ Running safe build (with type checking)..."
+    if npm run build:safe 2>/dev/null; then
+        echo "✅ Safe build succeeded!"
+    else
+        echo "⚠️ Safe build failed, trying regular build..."
+        if ! npm run build; then
+            echo "❌ Regular build failed! Trying force build..."
+            if ! npm run build:force; then
+                echo "❌ All builds failed!"
+                echo "Checking for detailed errors..."
+                echo "TypeScript check:"
+                npm run type-check 2>&1 || true
+                echo "Node version:"
+                node --version
+                echo "NPM version:"
+                npm --version
+                echo "Checking package.json..."
+                cat package.json | head -20
+                exit 1
+            fi
         fi
     fi
 
