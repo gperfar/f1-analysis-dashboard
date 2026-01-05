@@ -23,18 +23,27 @@ app.add_middleware(
 
 # Serve static files from dist directory in production
 if os.path.exists("dist"):
-    app.mount("/", StaticFiles(directory="dist", html=True), name="static")
+    print(f"📁 Found dist directory, serving static files")
 
     @app.get("/")
     async def read_root():
         return FileResponse("dist/index.html")
 
+    # Catch-all route for React Router - must be last
     @app.get("/{path:path}")
     async def catch_all(path: str):
+        # Skip API routes - let them return 404 if not found
+        if path.startswith("api/"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="API endpoint not found")
+
         file_path = f"dist/{path}"
         if os.path.exists(file_path):
             return FileResponse(file_path)
+        # For any other route, serve the React app (SPA routing)
         return FileResponse("dist/index.html")
+else:
+    print("❌ dist directory not found, API only mode")
 
 # Enable FastF1 caching
 cache_dir = './fastf1_cache'
@@ -912,4 +921,8 @@ async def get_drivers_data(year: int, round_number: int, session_type: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import os
+
+    # Use Railway's PORT environment variable, fallback to 8000 for local development
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)

@@ -4,8 +4,9 @@
 echo "🚀 Starting F1 Analysis Dashboard..."
 
 # Check if we're in production (Railway, Render, etc.) or development
-if [ "$RAILWAY_ENVIRONMENT" = "production" ] || [ "$PRODUCTION" = "true" ] || [ "$NODE_ENV" = "production" ]; then
+if [ "$RAILWAY_ENVIRONMENT" ] || [ "$PRODUCTION" = "true" ] || [ "$NODE_ENV" = "production" ] || [ "$PORT" ]; then
     echo "🏭 Running in PRODUCTION mode"
+    echo "Environment variables: RAILWAY_ENVIRONMENT=$RAILWAY_ENVIRONMENT, PORT=$PORT, NODE_ENV=$NODE_ENV"
 
     # Install Python dependencies if not already installed
     if ! python3 -c "import fastapi" 2>/dev/null; then
@@ -13,11 +14,24 @@ if [ "$RAILWAY_ENVIRONMENT" = "production" ] || [ "$PRODUCTION" = "true" ] || [ 
         pip3 install -r requirements.txt
     fi
 
-    # Build frontend if dist doesn't exist
-    if [ ! -d "dist" ]; then
-        echo "🔨 Building frontend..."
+    # Always build frontend in production
+    echo "🔨 Building frontend..."
+    npm install
+    npm run build
+
+    echo "📁 Checking dist directory..."
+    if [ -d "dist" ]; then
+        echo "✅ dist directory exists"
+        ls -la dist/
+    else
+        echo "❌ dist directory not found!"
+        echo "📦 Installing Node.js dependencies and retrying build..."
         npm install
         npm run build
+        if [ ! -d "dist" ]; then
+            echo "❌ Build still failed!"
+            exit 1
+        fi
     fi
 
     # Create FastF1 cache directory
