@@ -250,7 +250,7 @@ function App() {
         {selectedSession && (
           <Box>
             <Typography variant="h5" gutterBottom sx={{ mb: 3 }}>
-              {selectedSession.session_info.event_name} - {selectedSession.session_info.session_type.toUpperCase()}
+              {selectedSession.session_info.event_name} {selectedSession.session_info.year} - {selectedSession.session_info.session_name ?? selectedSession.session_info.session_type.toUpperCase()}
             </Typography>
 
             <Grid container spacing={3}>

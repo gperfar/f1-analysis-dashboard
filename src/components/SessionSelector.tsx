@@ -31,17 +31,18 @@ const SessionSelector: React.FC<SessionSelectorProps> = ({
   const [error, setError] = useState<string>('');
   const [loadingMessage, setLoadingMessage] = useState<string>('');
 
-  // Available years (F1 data availability)
-  const availableYears = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i);
+  // OpenF1 has free historical data from 2023 onwards
+  const FIRST_YEAR = 2023;
+  const availableYears = Array.from(
+    { length: new Date().getFullYear() - FIRST_YEAR + 1 },
+    (_, i) => new Date().getFullYear() - i
+  );
 
-  // Session types
-  const sessionTypes = [
-    { value: 'FP1', label: 'Free Practice 1' },
-    { value: 'FP2', label: 'Free Practice 2' },
-    { value: 'FP3', label: 'Free Practice 3' },
-    { value: 'Q', label: 'Qualifying' },
-    { value: 'R', label: 'Race' },
-  ];
+  // Sessions of the selected weekend (sprint weekends have SQ/S instead of FP2/FP3)
+  const sessionTypes = (selectedEvent?.available_sessions ?? []).map((s) => ({
+    value: s.code,
+    label: s.name,
+  }));
 
   // Load schedule when year changes
   useEffect(() => {
@@ -106,8 +107,10 @@ const SessionSelector: React.FC<SessionSelectorProps> = ({
 
   const handleEventChange = (event: any) => {
     const eventIndex = event.target.value;
-    setSelectedEvent(events[eventIndex] || null);
-    setSessionType('');
+    const newEvent = events[eventIndex] || null;
+    setSelectedEvent(newEvent);
+    const hasRace = newEvent?.available_sessions?.some((s) => s.code === 'R');
+    setSessionType(hasRace ? 'R' : '');
   };
 
   const handleSessionTypeChange = (event: any) => {
@@ -135,7 +138,8 @@ const SessionSelector: React.FC<SessionSelectorProps> = ({
       setLoadingMessage('Generating charts...');
       onSessionSelect(response.data);
     } catch (err) {
-      setError('Failed to load session data');
+      const detail = axios.isAxiosError(err) ? err.response?.data?.detail : undefined;
+      setError(typeof detail === 'string' ? detail : 'Failed to load session data');
       console.error('Error loading session:', err);
       onSessionSelect(null);
     } finally {

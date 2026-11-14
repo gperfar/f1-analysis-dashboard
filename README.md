@@ -1,10 +1,10 @@
 # F1 Analysis Dashboard
 
-A comprehensive F1 telemetry analysis dashboard built with FastF1, FastAPI, and React. This application allows you to explore detailed F1 session data through interactive charts and visualizations.
+A comprehensive F1 telemetry analysis dashboard built with the OpenF1 API, FastAPI, and React. This application allows you to explore detailed F1 session data through interactive charts and visualizations.
 
 ## Features
 
-- **Session Selection**: Choose from any F1 race weekend and session type (FP1, FP2, FP3, Qualifying, Race)
+- **Session Selection**: Choose any race weekend from 2023 onwards and any of its sessions (practice, sprint qualifying, sprint, qualifying, race)
 - **Fastest Lap Analysis**: Bar chart showing fastest lap times for each driver, ranked by performance
 - **Lap Time Gaps to Pole**: Horizontal bar chart showing time gaps to the pole position lap
 - **Start Analysis**: Acceleration analysis showing time to reach 100km/h and 200km/h from the start (race sessions only)
@@ -18,9 +18,22 @@ A comprehensive F1 telemetry analysis dashboard built with FastF1, FastAPI, and 
 
 ## Prerequisites
 
-- Python 3.8+
+- Python 3.10+
 - Node.js 16+
 - Internet connection (for downloading F1 data)
+
+## Data source
+
+All data comes from [OpenF1](https://openf1.org), a free API with no account
+needed. It covers **2023 onwards**.
+
+- OpenF1 allows 30 requests per minute. The backend spaces out its requests
+  to stay under that, so the **first** load of a session's telemetry charts
+  (speed and full throttle: one request per driver) takes about a minute.
+- Every response is cached in `openf1_cache/`, so a finished session only
+  downloads once. Delete the folder to start fresh.
+- Track layouts and corner numbers come from the MultiViewer circuit API
+  (linked from OpenF1).
 
 ## Installation & Quick Start
 
@@ -32,9 +45,8 @@ A comprehensive F1 telemetry analysis dashboard built with FastF1, FastAPI, and 
    ```
 
    This will automatically:
-   - Install Python dependencies (FastAPI, FastF1, pandas, etc.)
+   - Install Python dependencies (FastAPI, requests, numpy)
    - Install Node.js dependencies (React, Plotly, Material-UI, etc.)
-   - Create the FastF1 cache directory
    - Start both the backend (FastAPI on port 8000) and frontend (Vite on port 5173) servers
 
 ## Manual Setup (Alternative)
@@ -135,11 +147,18 @@ If you prefer to set up manually:
 
 The FastAPI backend provides the following endpoints:
 
-- `GET /api/schedule/{year}` - Get race schedule for a specific year
-- `GET /api/session/{year}/{round}/{session_type}` - Get session data and driver information
-- `GET /api/fastest-laps/{year}/{round}/{session_type}` - Get fastest lap times for all drivers
-- `GET /api/start-analysis/{year}/{round}` - Get start acceleration analysis (race sessions only)
-- `GET /api/tire-strategy/{year}/{round}/{session_type}` - Get tire usage data for all drivers
+`session_type` is one of `fp1`, `fp2`, `fp3`, `sq` (sprint qualifying), `s` (sprint), `q`, `r`.
+
+- `GET /api/schedule/{year}` - Race weekends of a season and their sessions
+- `GET /api/session/{year}/{round}/{session_type}` - Session info, weather and drivers
+- `GET /api/fastest-laps/{year}/{round}/{session_type}` - Each driver's fastest lap and gap to the best
+- `GET /api/lap-deltas/{year}/{round}/{session_type}` - Gaps to the best lap
+- `GET /api/tire-strategy/{year}/{round}/{session_type}` - Tyre compound per lap
+- `GET /api/position-changes/{year}/{round}/{session_type}` - Position at the end of each lap
+- `GET /api/full-throttle/{year}/{round}/{session_type}` - % of the fastest lap above 90% throttle
+- `GET /api/speed-distance/{year}/{round}/{session_type}` - Speed trace of each fastest lap
+- `GET /api/circuit-map/{year}/{round}/{session_type}` - Track outline with corner numbers
+- `GET /api/start-analysis/{year}/{round}` - Launch to 100 and 200 km/h at the race start
 
 ## Chart Types
 
@@ -160,7 +179,7 @@ The FastAPI backend provides the following endpoints:
 
 ## Data Sources
 
-This application uses the FastF1 library to access official F1 telemetry data. Data includes:
+This application uses [OpenF1](https://openf1.org) (see *Data source* above). Data includes:
 
 - Lap times and sector times
 - Car telemetry (speed, throttle, brake, etc.)
@@ -185,13 +204,13 @@ This application uses the FastF1 library to access official F1 telemetry data. D
 
 ### Common Issues
 
-1. **No data available**: Some older sessions may not have complete telemetry data
-2. **Slow loading**: First-time data access may take longer as FastF1 caches data locally
+1. **No data available**: OpenF1 publishes a session's data shortly after it ends; sessions before 2023 aren't available
+2. **Slow loading**: The first load of a session's telemetry takes about a minute because of OpenF1's rate limit; after that it comes from `openf1_cache/`
 3. **API errors**: Check that both frontend and backend servers are running
 
 ### Data Availability
 
-- Telemetry data is typically available from the 2018 season onwards
+- Data is available from the 2023 season onwards
 - Some sessions may have limited data depending on what was recorded
 - Internet connection required for initial data download
 
@@ -208,7 +227,7 @@ The following features could be added in future versions:
 
 ## License
 
-This project is for educational and personal use. Please respect F1 data usage policies and FastF1 library terms.
+This project is for educational and personal use. Please respect F1 data usage policies and OpenF1's terms.
 
 ## Contributing
 

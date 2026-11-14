@@ -71,10 +71,6 @@ if [ "$RAILWAY_ENVIRONMENT" ] || [ "$PRODUCTION" = "true" ] || [ "$NODE_ENV" = "
         exit 1
     fi
 
-    # Create FastF1 cache directory
-    echo "📁 Creating FastF1 cache directory..."
-    mkdir -p ./fastf1_cache
-
     echo "🌐 Starting production server (FastAPI + Static Files)..."
     python3 main.py
 else
@@ -99,10 +95,6 @@ else
     # Install Node.js dependencies
     echo "📦 Installing Node.js dependencies..."
     npm install
-
-    # Create FastF1 cache directory
-    echo "📁 Creating FastF1 cache directory..."
-    mkdir -p ./fastf1_cache
 
     echo "✅ Dependencies installed successfully!"
 

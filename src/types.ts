@@ -10,6 +10,7 @@ export interface SessionInfo {
   year: number;
   round: number;
   session_type: string;
+  session_name?: string;
   event_name: string;
   track_name: string;
   weather?: {
@@ -70,5 +71,10 @@ export interface RaceEvent {
     qualifying: string | null;
     race: string | null;
   };
+  available_sessions: {
+    code: string;
+    name: string;
+    date_start: string;
+  }[];
 }
 
