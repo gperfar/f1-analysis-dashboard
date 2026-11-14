@@ -10,7 +10,7 @@ on:
     inputs:
       budget_minutes:
         description: Minutes to spend downloading session data
-        default: '45'
+        default: '5'
 
 permissions:
   contents: write # push pre-computed data to the `data` branch
@@ -64,7 +64,9 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           # Optional: lets the build find highlight videos of older sessions.
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
-        run: npx tsx scripts/build-data.ts --out public/data --budget-minutes ${{ inputs.budget_minutes || '45' }}
+        # Pushes publish quickly (5 minutes is enough for anything new);
+        # scheduled runs spend 45 minutes back-filling older sessions.
+        run: npx tsx scripts/build-data.ts --out public/data --budget-minutes ${{ inputs.budget_minutes || (github.event_name == 'schedule' && '45' || '5') }}
 
       - name: Save data branch
         run: |
