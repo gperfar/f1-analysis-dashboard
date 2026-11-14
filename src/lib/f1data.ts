@@ -362,24 +362,7 @@ export class Session {
         `date<${apiDate(end)}`,
       ])
     ).filter((r) => r.speed != null);
-    if (rows.length < 2) return null;
-
-    const time = rows.map((r) => ((parseDate(r.date) ?? start) - start) / 1000);
-    const speed = rows.map((r) => Number(r.speed)); // km/h
-    // trapezoidal integration of speed over time = distance in metres
-    const distance = [0];
-    for (let i = 1; i < rows.length; i++) {
-      const avgMs = (speed[i] + speed[i - 1]) / 2 / 3.6;
-      distance.push(distance[i - 1] + (time[i] - time[i - 1]) * avgMs);
-    }
-    return {
-      time,
-      distance,
-      speed,
-      throttle: rows.map((r) => r.throttle ?? null),
-      brake: rows.map((r) => r.brake ?? null),
-      gear: rows.map((r) => r.n_gear ?? null),
-    };
+    return telemetryFromRows(rows, start);
   }
 
   /**
@@ -449,6 +432,31 @@ export class Session {
     return this.circuit;
   }
 }
+
+/** Car data rows (sorted by date) for one lap -> telemetry, with distance integrated from speed. */
+export function telemetryFromRows(rows: Row[], start: number): Telemetry | null {
+  rows = rows.filter((r) => r.speed != null);
+  if (rows.length < 2) return null;
+  const time = rows.map((r) => ((parseDate(r.date) ?? start) - start) / 1000);
+  const speed = rows.map((r) => Number(r.speed)); // km/h
+  // trapezoidal integration of speed over time = distance in metres
+  const distance = [0];
+  for (let i = 1; i < rows.length; i++) {
+    const avgMs = (speed[i] + speed[i - 1]) / 2 / 3.6;
+    distance.push(distance[i - 1] + (time[i] - time[i - 1]) * avgMs);
+  }
+  return {
+    time,
+    distance,
+    speed,
+    throttle: rows.map((r) => r.throttle ?? null),
+    brake: rows.map((r) => r.brake ?? null),
+    gear: rows.map((r) => r.n_gear ?? null),
+  };
+}
+
+/** Format epoch ms for an OpenF1 date filter. */
+export { apiDate };
 
 function timeToReach(samples: [number, number][], target: number, launch: number): number | null {
   const i = samples.findIndex(([, v]) => v >= target);

@@ -8,13 +8,15 @@
  * build script that pre-computes stories for GitHub Pages.
  */
 
-import { loadSession, parseDate, Session, getSchedule, FIRST_YEAR, Event } from './f1data';
+import { loadSession, parseDate, Session, getSchedule, FIRST_YEAR, Event, Telemetry, telemetryFromRows } from './f1data';
+import { energyZones } from './telemetryAnalysis';
 import { openf1Get, Row } from './openf1';
 import { buildNarrative, Headline } from './narrative';
 
 export const STORY_VERSION = 3;
 /** Telemetry files have their own version, so story changes don't force re-downloading them. */
 export const TELEMETRY_VERSION = 1;
+export const ENERGY_VERSION = 1;
 
 export type SessionKind = 'race' | 'qualifying' | 'practice';
 
@@ -627,26 +629,78 @@ export function cleanLaps(story: SessionStory, s: LapSeries): { lap: number; tim
     .map(({ lap, time, age, compound }) => ({ lap, time, age, compound }));
 }
 
+/** Compact, rounded telemetry for one lap. */
+export function toTelemetryLap(driver: number, lap: number, lapTime: number, t: Telemetry): TelemetryLap {
+  const r1 = (v: number) => Math.round(v * 10) / 10;
+  return {
+    driver,
+    lap,
+    lapTime,
+    time: t.time.map((v) => Math.round(v * 1000) / 1000),
+    distance: t.distance.map(r1),
+    speed: t.speed.map(Math.round),
+    throttle: t.throttle.map((v) => Math.round(v ?? 0)),
+    brake: t.brake.map((v) => (v ? 1 : 0)),
+    gear: t.gear.map((v) => v ?? 0),
+  };
+}
+
 export async function buildTelemetry(year: number, round: number, code: string): Promise<TelemetrySet> {
   const session = await loadSession(year, round, code);
   const laps = await session.fastestLapTelemetry();
-  const r1 = (v: number) => Math.round(v * 10) / 10;
   return {
-    version: STORY_VERSION,
-    drivers: laps
-      .filter(([, t]) => t)
-      .map(([lap, t]) => ({
-        driver: lap.driver_number,
-        lap: lap.lap_number,
-        lapTime: lap.lap_duration,
-        time: t!.time.map((v) => Math.round(v * 1000) / 1000),
-        distance: t!.distance.map(r1),
-        speed: t!.speed.map(Math.round),
-        throttle: t!.throttle.map((v) => Math.round(v ?? 0)),
-        brake: t!.brake.map((v) => (v ? 1 : 0)),
-        gear: t!.gear.map((v) => v ?? 0),
-      })),
+    version: TELEMETRY_VERSION,
+    drivers: laps.filter(([, t]) => t).map(([lap, t]) => toTelemetryLap(lap.driver_number, lap.lap_number, lap.lap_duration, t!)),
   };
+}
+
+/** Lift-and-coast seconds and clipping metres on every lap, per driver. */
+export interface EnergySet {
+  version: number;
+  drivers: { driver: number; lap: number[]; lift: number[]; clip: number[] }[];
+}
+
+/**
+ * Energy management through a whole session. Needs every driver's full car
+ * data (~6 MB each for a race), so it only runs in the data build, and those
+ * downloads aren't cached.
+ */
+export async function buildEnergy(year: number, round: number, code: string): Promise<EnergySet> {
+  const session = await loadSession(year, round, code);
+  const drivers: EnergySet['drivers'] = [];
+  for (const [number, laps] of session.lapsByDriver) {
+    const rows = (await openf1Get('car_data', { params: { session_key: session.sessionKey, driver_number: number }, noCache: true }))
+      .map((r) => ({ ...r, _t: parseDate(r.date) ?? 0 }))
+      .sort((a, b) => a._t - b._t);
+    const times = rows.map((r) => r._t);
+    const entry = { driver: number, lap: [] as number[], lift: [] as number[], clip: [] as number[] };
+    for (const lap of laps) {
+      const start = parseDate(lap.date_start);
+      if (start === null || !lap.lap_duration) continue;
+      const end = start + lap.lap_duration * 1000;
+      const from = lowerBound(times, start);
+      const to = lowerBound(times, end);
+      const t = telemetryFromRows(rows.slice(from, to), start);
+      if (!t) continue;
+      const zones = energyZones(toTelemetryLap(number, lap.lap_number, lap.lap_duration, t));
+      entry.lap.push(lap.lap_number);
+      entry.lift.push(zones.liftSeconds);
+      entry.clip.push(zones.clippingMeters);
+    }
+    if (entry.lap.length) drivers.push(entry);
+  }
+  return { version: ENERGY_VERSION, drivers };
+}
+
+function lowerBound(values: number[], target: number): number {
+  let lo = 0;
+  let hi = values.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (values[mid] < target) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
 }
 
 // -- season ------------------------------------------------------------------------------

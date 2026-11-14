@@ -18,7 +18,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { setResponseStore } from '../src/lib/openf1';
 import { clearSessionCache, FIRST_YEAR } from '../src/lib/f1data';
-import { buildSeason, buildStory, buildTelemetry, kindOf, SessionStory, STORY_VERSION, TELEMETRY_VERSION } from '../src/lib/story';
+import { buildEnergy, buildSeason, buildStory, buildTelemetry, ENERGY_VERSION, kindOf, SessionStory, STORY_VERSION, TELEMETRY_VERSION } from '../src/lib/story';
 import { fsStore } from './fs-store';
 import { aiSummary } from './ai-summary';
 import { collectVideos } from './videos';
@@ -40,6 +40,8 @@ if (!YEARS.length) for (let y = currentYear; y >= FIRST_YEAR; y--) YEARS.push(y)
 // Sessions are final (won't change) this long after they end.
 const FINAL_AFTER_MS = 3 * 3600_000;
 const TELEMETRY_CODES = new Set(['R', 'S', 'Q', 'SQ']);
+// Energy analysis downloads every driver's full car data (~6 MB each), so only races and sprints.
+const ENERGY_CODES = new Set(['R', 'S']);
 const started = Date.now();
 const withAi = !!process.env.ANTHROPIC_API_KEY;
 
@@ -111,7 +113,10 @@ async function main() {
       const needsTelemetry =
         TELEMETRY_CODES.has(s.code) && (await readJson<{ version: number }>(`${base}.telemetry.json`))?.version !== TELEMETRY_VERSION;
 
-      if (!needsStory && !needsAi && !needsTelemetry) {
+      const needsEnergy =
+        ENERGY_CODES.has(s.code) && (await readJson<{ version: number }>(`${base}.energy.json`))?.version !== ENERGY_VERSION;
+
+      if (!needsStory && !needsAi && !needsTelemetry && !needsEnergy) {
         skipped++;
         continue;
       }
@@ -130,6 +135,7 @@ async function main() {
       }
       if (story && (needsStory || needsAi)) await writeJson(`${base}.json`, story);
       if (needsTelemetry) await writeJson(`${base}.telemetry.json`, await buildTelemetry(s.year, s.round, s.code));
+      if (needsEnergy) await writeJson(`${base}.energy.json`, await buildEnergy(s.year, s.round, s.code));
       built++;
       console.log(`✓ ${label}${story?.aiSummary && needsAi ? ' (+AI recap)' : ''}`);
     } catch (e) {

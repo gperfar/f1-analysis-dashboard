@@ -31,6 +31,8 @@ export interface GetOptions {
   filters?: string[];
   /** Seconds a cached response stays valid; undefined caches forever. */
   ttl?: number;
+  /** Don't read or write the cache (for very large one-off downloads). */
+  noCache?: boolean;
 }
 
 const sent: number[] = []; // timestamps of recent requests
@@ -179,8 +181,8 @@ function notify() {
   listeners.forEach((l) => l(snapshot));
 }
 
-async function cachedGet(url: string, ttl: number | undefined, rateLimited: boolean) {
-  const cached = await readCache(url, ttl);
+async function cachedGet(url: string, ttl: number | undefined, rateLimited: boolean, noCache = false) {
+  const cached = noCache ? undefined : await readCache(url, ttl);
   if (cached !== undefined) return cached;
 
   const pending = inFlight.get(url);
@@ -189,7 +191,7 @@ async function cachedGet(url: string, ttl: number | undefined, rateLimited: bool
   notify();
   const request = fetchJson(url, rateLimited)
     .then(async (data) => {
-      await writeCache(url, data);
+      if (!noCache) await writeCache(url, data);
       return data;
     })
     .finally(() => {
@@ -203,7 +205,7 @@ async function cachedGet(url: string, ttl: number | undefined, rateLimited: bool
 
 /** GET /v1/{endpoint} and return the list of records. */
 export function openf1Get(endpoint: string, options: GetOptions = {}): Promise<Row[]> {
-  return cachedGet(buildUrl(endpoint, options), options.ttl, true);
+  return cachedGet(buildUrl(endpoint, options), options.ttl, true, options.noCache);
 }
 
 /** GET any JSON URL through the same cache (used for circuit info). */

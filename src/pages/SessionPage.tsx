@@ -1,15 +1,17 @@
 import { ReactNode, useEffect, useRef, useState } from 'react';
 import { Box, Button, Chip, Container, Link, Paper, Stack, Typography } from '@mui/material';
 import { Chapter, contrastText, DriverChip, ErrorBox, Loading, Panel } from '../components/ui';
-import { loadStory, loadTelemetry } from '../lib/data';
-import { cleanLaps, SessionStory } from '../lib/story';
+import { loadEnergy, loadLapTelemetry, loadStory, loadTelemetry } from '../lib/data';
+import { cleanLaps, EnergySet, SessionStory } from '../lib/story';
 import { formatTime, onTrackOvertakes } from '../lib/narrative';
 import { FocusContext, useAsync, useFocus, useFocusState } from '../hooks';
 import { colors } from '../theme';
 import { driverLookup } from '../charts/common';
 import { ChampionshipImpact, FastestLapGaps, GapToLeader, GridToFlag, LapOneChanges, LaunchChart, PaceDistribution, PitStops, PositionChart, StintPace, TyreStrategy } from '../charts/race';
 import { GapToPole, IdealLap, LongRuns, QualifyingTable, SectorHeatmap, SessionTimeline } from '../charts/session';
-import { DriverPicker, HeadToHead, Replay, TrackDominance } from '../charts/telemetry';
+import { Replay } from '../charts/telemetry';
+import { CornerComparison, CornerSpeeds, DriverPicker, LapComparison, LapPicker, SetupScatter, TrackDominance } from '../charts/headToHead';
+import { EnergyAverages, energySummary, EnergyThroughRace } from '../charts/energy';
 import { RadioFeed, RadioProvider } from '../components/radio';
 import KeyMoments from '../components/KeyMoments';
 import Highlights from '../components/Highlights';
@@ -38,7 +40,10 @@ export default function SessionPage({ year, round, code }: { year: number; round
 
 function Story({ story }: { story: SessionStory }) {
   const kind = story.meta.kind;
-  const chapters = kind === 'race' ? raceChapters(story) : kind === 'qualifying' ? qualifyingChapters(story) : practiceChapters(story);
+  const { year, round, code } = story.meta;
+  // Energy analysis only exists once the data build has processed the session.
+  const energy = useAsync(() => (kind === 'race' ? loadEnergy(year, round, code) : Promise.resolve(null)), `energy:${year}/${round}/${code}`);
+  const chapters = kind === 'race' ? raceChapters(story, energy.data) : kind === 'qualifying' ? qualifyingChapters(story) : practiceChapters(story);
   return (
     <>
       <Hero story={story} chapters={chapters.map((c) => ({ id: c.id, title: c.title }))} />
@@ -165,39 +170,81 @@ function useInView<T extends Element>(): [React.RefObject<T>, boolean] {
   return [ref, seen];
 }
 
+const never = () => new Promise<never>(() => {});
+
 function HeadToHeadChapter({ story, defaults }: { story: SessionStory; defaults: [number, number] }) {
   const [ref, seen] = useInView<HTMLDivElement>();
+  const fastestLap = (n: number) => story.fastest.find((f) => f.driver === n)?.lap ?? story.laps.find((s) => s.driver === n)?.lap[0] ?? 1;
   const [a, setA] = useState(defaults[0]);
   const [b, setB] = useState(defaults[1]);
-  const telemetry = useAsync(() => (seen ? loadTelemetry(story.meta.year, story.meta.round, story.meta.code) : new Promise<never>(() => {})), `${story.meta.sessionKey}:${seen}`);
-  const drivers = driverLookup(story);
-  const fa = story.fastest.find((f) => f.driver === a);
-  const fb = story.fastest.find((f) => f.driver === b);
+  const [lapA, setLapA] = useState(() => fastestLap(defaults[0]));
+  const [lapB, setLapB] = useState(() => fastestLap(defaults[1]));
+  const { year, round, code } = story.meta;
+  const telemetry = useAsync(() => (seen ? loadTelemetry(year, round, code) : never()), `${story.meta.sessionKey}:${seen}`);
+  // Any lap other than the fastest is fetched on demand (one small request).
+  const ready = !!telemetry.data || !!telemetry.error;
+  const pair = useAsync(
+    () => (ready ? Promise.all([loadLapTelemetry(story, a, lapA, telemetry.data), loadLapTelemetry(story, b, lapB, telemetry.data)]) : never()),
+    `${a}:${lapA}:${b}:${lapB}:${ready}`
+  );
+  const [la, lb] = pair.data ?? [null, null];
+
   return (
     <div ref={ref}>
       <Panel
-        title="Fastest lap, compared"
+        title="Two laps, compared"
         actions={
-          <Stack direction="row" spacing={1} alignItems="center">
-            <DriverPicker story={story} value={a} onChange={setA} exclude={b} />
-            <Typography sx={{ color: colors.muted }}>vs</Typography>
-            <DriverPicker story={story} value={b} onChange={setB} exclude={a} />
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ md: 'center' }}>
+            <Stack direction="row" spacing={0.5}>
+              <DriverPicker story={story} value={a} onChange={(n) => { setA(n); setLapA(fastestLap(n)); }} exclude={b} />
+              <LapPicker story={story} driver={a} value={lapA} onChange={setLapA} />
+            </Stack>
+            <Typography sx={{ color: colors.muted, textAlign: 'center' }}>vs</Typography>
+            <Stack direction="row" spacing={0.5}>
+              <DriverPicker story={story} value={b} onChange={(n) => { setB(n); setLapB(fastestLap(n)); }} exclude={a} />
+              <LapPicker story={story} driver={b} value={lapB} onChange={setLapB} />
+            </Stack>
           </Stack>
         }
-        caption={
-          fa && fb
-            ? `${drivers.get(a)?.code} ${formatTime(fa.time)} (lap ${fa.lap}) vs ${drivers.get(b)?.code} ${formatTime(fb.time)} (lap ${fb.lap}). The middle panel is the running gap: above zero, ${drivers.get(b)?.code} is behind.`
-            : undefined
-        }
+        caption="Pick any two laps, including two laps of the same driver (e.g. early and late in a stint). Blue bands mark lift-and-coast, orange bands clipping (losing speed at full throttle when the battery stops deploying)."
       >
-        {telemetry.loading && <Loading label="Loading car telemetry…" minHeight={420} />}
-        {telemetry.error && <ErrorBox message={telemetry.error} />}
-        {telemetry.data && <HeadToHead story={story} telemetry={telemetry.data} a={a} b={b} />}
+        {(telemetry.loading || pair.loading) && <Loading label="Loading car telemetry…" minHeight={420} />}
+        {pair.error && <ErrorBox message={pair.error} />}
+        {pair.data && (!la || !lb) && <ErrorBox message="No telemetry for one of these laps." />}
+        {la && lb && <LapComparison story={story} la={la} lb={lb} />}
       </Panel>
-      {telemetry.data && story.circuit && (
-        <Panel title="Who was faster where" caption="The lap split into 25 equal mini-sectors, coloured by the quicker driver.">
-          <TrackDominance story={story} telemetry={telemetry.data} a={a} b={b} />
-        </Panel>
+      {la && lb && story.circuit && (
+        <>
+          <Panel title="Where the time went, corner by corner" caption="Each corner's section runs from halfway after the previous corner to halfway before the next. Braking point is how far before the slowest point the driver hit the brakes.">
+            <CornerComparison story={story} la={la} lb={lb} />
+          </Panel>
+          <Panel title="Who was faster where" caption="The lap split into 25 equal mini-sectors, coloured by the quicker lap.">
+            <TrackDominance story={story} la={la} lb={lb} />
+          </Panel>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Field-wide view of the fastest laps: corner speeds and the drag/downforce trade-off. */
+function CornersChapter({ story }: { story: SessionStory }) {
+  const [ref, seen] = useInView<HTMLDivElement>();
+  const { year, round, code } = story.meta;
+  const telemetry = useAsync(() => (seen ? loadTelemetry(year, round, code) : never()), `${story.meta.sessionKey}:${seen}`);
+  return (
+    <div ref={ref}>
+      {telemetry.loading && <Loading label="Loading car telemetry…" minHeight={300} />}
+      {telemetry.error && <ErrorBox message={telemetry.error} />}
+      {telemetry.data && (
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '3fr 2fr' }, gap: 2 }}>
+          <Panel title="Minimum speed in every corner" caption="Each dot is a driver's fastest lap. Highlight drivers above to compare them.">
+            <CornerSpeeds story={story} telemetry={telemetry.data} />
+          </Panel>
+          <Panel title="Downforce or top speed?" caption="Cars to the right carry more speed through corners (more downforce); cars higher up are faster on the straights (less drag).">
+            <SetupScatter story={story} telemetry={telemetry.data} />
+          </Panel>
+        </Box>
       )}
     </div>
   );
@@ -223,7 +270,7 @@ function ReplayChapter({ story }: { story: SessionStory }) {
 
 // -- race ------------------------------------------------------------------------------
 
-function raceChapters(story: SessionStory): ChapterDef[] {
+function raceChapters(story: SessionStory, energy: EnergySet | null): ChapterDef[] {
   const drivers = driverLookup(story);
   const code = (n?: number) => (n == null ? '' : drivers.get(n)?.code ?? String(n));
   const finishers = story.classification.filter((r) => r.position);
@@ -325,7 +372,29 @@ function raceChapters(story: SessionStory): ChapterDef[] {
     ),
   });
 
-  if (p1 && p2) chapters.push({ id: 'head-to-head', title: 'Head to head', takeaway: 'Compare any two drivers on their fastest laps: speed, throttle, braking and where the time went.', content: <HeadToHeadChapter story={story} defaults={[p1.driver, p2.driver]} /> });
+  if (energy?.drivers.length) {
+    const summary = energySummary(story, energy);
+    const mostLift = [...summary].sort((x, y) => y.lift - x.lift)[0];
+    const mostClip = [...summary].sort((x, y) => y.clip - x.clip)[0];
+    chapters.push({
+      id: 'energy',
+      title: 'Energy management',
+      takeaway: mostLift && mostClip
+        ? `${code(mostLift.driver)} lifted and coasted the most (${mostLift.lift.toFixed(1)}s per lap on average); ${code(mostClip.driver)} spent the most distance clipping (${Math.round(mostClip.clip)} m per lap). Saving energy here buys deployment elsewhere.`
+        : 'How much each driver lifted and coasted, and how far they ran out of electric deployment at full throttle.',
+      content: (
+        <>
+          <EnergyThroughRace story={story} energy={energy} />
+          <Panel title="Average per lap" caption="Clean laps only: no lap 1, pit laps or safety car laps. Estimates from car telemetry (throttle, brake and speed about four times a second).">
+            <EnergyAverages story={story} energy={energy} />
+          </Panel>
+        </>
+      ),
+    });
+  }
+
+  if (p1 && p2) chapters.push({ id: 'head-to-head', title: 'Head to head', takeaway: 'Any two laps compared metre by metre: speed, throttle, braking, energy zones and where the time went, corner by corner.', content: <HeadToHeadChapter story={story} defaults={[p1.driver, p2.driver]} /> });
+  chapters.push({ id: 'corners', title: 'Corners and car setup', takeaway: 'How fast every car was through each corner on its best lap, and who traded downforce for straight-line speed.', content: <CornersChapter story={story} /> });
   if (story.circuit && story.meta.t0) chapters.push({ id: 'replay', title: 'Replay', takeaway: 'Watch any lap unfold on track.', content: <ReplayChapter story={story} /> });
 
   chapters.push({
@@ -388,7 +457,8 @@ function qualifyingChapters(story: SessionStory): ChapterDef[] {
     },
     { id: 'evolution', title: 'Session evolution', takeaway: 'Every push lap through the session. The track gets faster as rubber goes down.', content: <Panel><SessionTimeline story={story} /></Panel> },
   ];
-  if (rows[0] && rows[1]) chapters.push({ id: 'head-to-head', title: 'Head to head', takeaway: 'The two fastest laps compared, metre by metre. Pick any two drivers.', content: <HeadToHeadChapter story={story} defaults={[rows[0].driver, rows[1].driver]} /> });
+  if (rows[0] && rows[1]) chapters.push({ id: 'head-to-head', title: 'Head to head', takeaway: 'The two best laps compared, metre by metre, and corner by corner. Pick any two laps.', content: <HeadToHeadChapter story={story} defaults={[rows[0].driver, rows[1].driver]} /> });
+  chapters.push({ id: 'corners', title: 'Corners and car setup', takeaway: 'Every car through every corner on its best lap, and the downforce vs top speed trade-off.', content: <CornersChapter story={story} /> });
   const radio = radioChapter(story);
   if (radio) chapters.push(radio);
   return chapters;

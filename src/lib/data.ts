@@ -4,8 +4,8 @@
  * Actions) and falls back to computing it live from OpenF1 in the browser.
  */
 
-import { buildSeason, buildStory, buildTelemetry, SeasonStory, SessionStory, STORY_VERSION, TELEMETRY_VERSION, TelemetrySet } from './story';
-import { DataError, parseDate } from './f1data';
+import { buildSeason, buildStory, buildTelemetry, ENERGY_VERSION, EnergySet, SeasonStory, SessionStory, STORY_VERSION, TELEMETRY_VERSION, TelemetryLap, TelemetrySet, toTelemetryLap } from './story';
+import { apiDate, DataError, parseDate, telemetryFromRows } from './f1data';
 import { openf1Get, Row } from './openf1';
 import { VideoIndex, VideoRef, VIDEOS_VERSION } from './videos';
 
@@ -50,6 +50,37 @@ export function loadTelemetry(year: number, round: number, code: string): Promis
   return once(`telemetry:${year}/${round}/${c}`, async () =>
     (await precomputed<TelemetrySet>(`${year}/${round}/${c}.telemetry.json`, TELEMETRY_VERSION)) ?? buildTelemetry(year, round, c)
   );
+}
+
+/**
+ * Telemetry for any lap of a driver. Fastest laps come from the telemetry
+ * set; any other lap is one small OpenF1 request (cached in the browser).
+ */
+export function loadLapTelemetry(story: SessionStory, driver: number, lap: number, fastest?: TelemetrySet | null): Promise<TelemetryLap | null> {
+  const known = fastest?.drivers.find((d) => d.driver === driver && d.lap === lap);
+  if (known) return Promise.resolve(known);
+  return once(`lap:${story.meta.sessionKey}:${driver}:${lap}`, async () => {
+    const t0 = parseDate(story.meta.t0 ?? story.meta.dateStart);
+    const series = story.laps.find((s) => s.driver === driver);
+    const i = series?.lap.indexOf(lap) ?? -1;
+    const end = i >= 0 ? series!.end[i] : null;
+    const time = i >= 0 ? series!.time[i] : null;
+    if (t0 === null || end === null || time === null) return null;
+    const start = t0 + (end - time) * 1000;
+    const rows = await openf1Get('car_data', {
+      params: { session_key: story.meta.sessionKey, driver_number: driver },
+      filters: [`date>=${apiDate(start)}`, `date<${apiDate(start + time * 1000)}`],
+    });
+    rows.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const t = telemetryFromRows(rows, start);
+    return t ? toTelemetryLap(driver, lap, time, t) : null;
+  });
+}
+
+/** Energy management per lap (only available once the data build has processed the session). */
+export function loadEnergy(year: number, round: number, code: string): Promise<EnergySet | null> {
+  const c = code.toUpperCase();
+  return once(`energy:${year}/${round}/${c}`, () => precomputed<EnergySet>(`${year}/${round}/${c}.energy.json`, ENERGY_VERSION));
 }
 
 /** Official highlights video for a session, if the data build found one. */
