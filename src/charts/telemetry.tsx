@@ -4,7 +4,7 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PauseIcon from '@mui/icons-material/Pause';
 import Plot from '../components/Plot';
 import type { Circuit, SessionStory, TelemetryLap, TelemetrySet } from '../lib/story';
-import { loadReplay } from '../lib/data';
+import { loadReplay, ReplayTiming } from '../lib/data';
 import { useAsync } from '../hooks';
 import { colors } from '../theme';
 import { driverLookup, fmtSeconds, trackLayout, trackTraces } from './common';
@@ -230,10 +230,20 @@ export function Replay({ story }: { story: SessionStory }) {
 
   if (!story.circuit) return <ErrorBox message="No circuit layout for this session." />;
   const cars = replay.data ? [...replay.data.cars].filter(([, f]) => f.t.length > 1) : [];
-  const order = story.laps
-    .map((s) => ({ driver: s.driver, pos: s.position[s.lap.indexOf(lap)] }))
-    .filter((x) => x.pos)
-    .sort((x, y) => x.pos! - y.pos!);
+  const tower = replay.data ? timingTower(story, lap, replay.data.timing, t) : { live: false, rows: [] };
+
+  // Fixed axis ranges from the track's bounds: with autorange, labels near the
+  // edge change the plot's extent on every frame and the chart shakes.
+  const xs = story.circuit.x;
+  const ys = story.circuit.y;
+  const pad = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) * 0.06;
+  const replayLayout = {
+    ...trackLayout,
+    xaxis: { ...trackLayout.xaxis, range: [Math.min(...xs) - pad, Math.max(...xs) + pad], autorange: false, automargin: false },
+    yaxis: { ...trackLayout.yaxis, range: [Math.min(...ys) - pad, Math.max(...ys) + pad * 1.6], autorange: false, automargin: false },
+    uirevision: 'replay', // keep the user's zoom/pan between frames
+    transition: { duration: 0 },
+  };
 
   return (
     <Box>
@@ -289,27 +299,42 @@ export function Replay({ story }: { story: SessionStory }) {
                   text: cars.map(([n]) => drivers.get(n)?.code ?? String(n)),
                   textposition: 'top center',
                   textfont: { size: 10, color: colors.text },
+                  cliponaxis: false, // labels may overflow the plot area without resizing it
                   marker: { size: 12, color: cars.map(([n]) => drivers.get(n)?.color ?? '#888'), line: { color: colors.bg, width: 1.5 } },
                   hovertemplate: '%{text}<extra></extra>',
                   showlegend: false,
                 },
               ]}
-              layout={{ ...trackLayout, transition: { duration: 0 } }}
+              layout={replayLayout}
             />
           </Box>
-          <Box sx={{ minWidth: 170 }}>
+          <Box sx={{ minWidth: 230 }}>
             <Typography variant="overline" sx={{ color: colors.muted }}>
-              Order at end of lap {lap}
+              {tower.live ? 'Live timing' : `Order at end of lap ${lap}`}
             </Typography>
-            {order.slice(0, 22).map((o) => {
-              const d = drivers.get(o.driver);
+            <Stack direction="row" sx={{ color: colors.muted, fontSize: 11, pb: 0.5 }}>
+              <Box sx={{ width: 22 }} />
+              <Box sx={{ flex: 1, pl: 1.5 }}>Driver</Box>
+              <Box sx={{ width: 64, textAlign: 'right' }}>Leader</Box>
+              <Box sx={{ width: 56, textAlign: 'right' }}>Ahead</Box>
+            </Stack>
+            {tower.rows.slice(0, 22).map((row, i) => {
+              const d = drivers.get(row.driver);
               return (
-                <Stack key={o.driver} direction="row" spacing={1} alignItems="center" sx={{ py: 0.2 }}>
+                <Stack key={row.driver} direction="row" alignItems="center" sx={{ py: 0.2, fontVariantNumeric: 'tabular-nums' }}>
                   <Typography variant="body2" sx={{ width: 22, color: colors.muted }}>
-                    {o.pos}
+                    {i + 1}
                   </Typography>
-                  <Box sx={{ width: 4, height: 14, bgcolor: d?.color }} />
-                  <Typography variant="body2">{d?.code}</Typography>
+                  <Box sx={{ width: 4, height: 14, bgcolor: d?.color, mr: 1 }} />
+                  <Typography variant="body2" sx={{ flex: 1 }}>
+                    {d?.code ?? row.driver}
+                  </Typography>
+                  <Typography variant="body2" sx={{ width: 64, textAlign: 'right' }}>
+                    {i === 0 ? 'Leader' : fmtGap(row.gap)}
+                  </Typography>
+                  <Typography variant="body2" sx={{ width: 56, textAlign: 'right', color: colors.muted }}>
+                    {i === 0 ? '' : fmtGap(row.interval)}
+                  </Typography>
                 </Stack>
               );
             })}
@@ -318,4 +343,44 @@ export function Replay({ story }: { story: SessionStory }) {
       )}
     </Box>
   );
+}
+
+// -- timing tower ------------------------------------------------------------------------
+
+type Gap = number | string | null;
+
+const fmtGap = (g: Gap) => (g === null || g === undefined ? '' : typeof g === 'number' ? `+${g.toFixed(1)}` : g);
+
+/** Sort key for a gap: numbers first, then lapped cars ("+1 LAP", "+2 LAPS"...). */
+function gapRank(g: Gap): number {
+  if (typeof g === 'number') return g;
+  const laps = typeof g === 'string' ? parseInt(g.replace(/[^\d]/g, ''), 10) : NaN;
+  return Number.isNaN(laps) ? 1e9 : 1e6 * laps;
+}
+
+/**
+ * Gaps at replay time `t`: the latest OpenF1 interval sample for each car.
+ * Falls back to the end-of-lap gaps from the story when there are none.
+ */
+function timingTower(story: SessionStory, lap: number, timing: Map<number, ReplayTiming>, t: number) {
+  if (timing.size) {
+    const rows = [...timing].map(([driver, s]) => {
+      let i = 0;
+      while (i + 1 < s.t.length && s.t[i + 1] <= t) i++;
+      return { driver, gap: s.gap[i], interval: s.interval[i] };
+    });
+    rows.sort((a, b) => gapRank(a.gap) - gapRank(b.gap));
+    return { live: true, rows };
+  }
+  const rows = story.laps
+    .map((s) => {
+      const i = s.lap.indexOf(lap);
+      return { driver: s.driver, pos: s.position[i], gap: s.gap[i] as Gap, interval: null as Gap };
+    })
+    .filter((r) => r.pos)
+    .sort((a, b) => a.pos! - b.pos!);
+  rows.forEach((r, i) => {
+    if (i > 0 && typeof r.gap === 'number' && typeof rows[i - 1].gap === 'number') r.interval = Math.round((r.gap - (rows[i - 1].gap as number)) * 10) / 10;
+  });
+  return { live: false, rows };
 }

@@ -6,7 +6,7 @@
 
 import { buildSeason, buildStory, buildTelemetry, SeasonStory, SessionStory, STORY_VERSION, TelemetrySet } from './story';
 import { DataError, parseDate } from './f1data';
-import { openf1Get } from './openf1';
+import { openf1Get, Row } from './openf1';
 
 const DATA_BASE = './data';
 
@@ -84,7 +84,17 @@ export interface ReplayFrame {
  * Car positions on track for one lap of the leader (all cars, one request).
  * Coordinates are rotated like the circuit map so they line up.
  */
-export function loadReplay(story: SessionStory, lap: number): Promise<{ duration: number; cars: Map<number, ReplayFrame> }> {
+/** Gap to the leader and to the car ahead over time (seconds, or e.g. "+1 LAP"). */
+export interface ReplayTiming {
+  t: number[];
+  gap: (number | string | null)[];
+  interval: (number | string | null)[];
+}
+
+export function loadReplay(
+  story: SessionStory,
+  lap: number
+): Promise<{ duration: number; cars: Map<number, ReplayFrame>; timing: Map<number, ReplayTiming> }> {
   return once(`replay:${story.meta.sessionKey}:${lap}`, async () => {
     const t0 = parseDate(story.meta.t0);
     const leader = story.laps.find((s) => s.driver === story.classification[0]?.driver);
@@ -97,10 +107,17 @@ export function loadReplay(story: SessionStory, lap: number): Promise<{ duration
     const from = t0 + start * 1000;
     const to = t0 + end * 1000;
     const iso = (ms: number) => new Date(ms).toISOString().replace('Z', '');
-    const rows = await openf1Get('location', {
-      params: { session_key: story.meta.sessionKey },
-      filters: [`date>=${iso(from)}`, `date<${iso(to)}`],
-    });
+    const [rows, intervals] = await Promise.all([
+      openf1Get('location', {
+        params: { session_key: story.meta.sessionKey },
+        filters: [`date>=${iso(from)}`, `date<${iso(to)}`],
+      }),
+      // Start a little earlier so every car has a gap from the first frame.
+      openf1Get('intervals', {
+        params: { session_key: story.meta.sessionKey },
+        filters: [`date>=${iso(from - 30_000)}`, `date<${iso(to)}`],
+      }).catch(() => [] as Row[]),
+    ]);
 
     const angle = story.circuit?.rotation ?? 0;
     const cars = new Map<number, ReplayFrame>();
@@ -112,6 +129,14 @@ export function loadReplay(story: SessionStory, lap: number): Promise<{ duration
       frame.y.push(r.x * Math.sin(angle) + r.y * Math.cos(angle));
       cars.set(r.driver_number, frame);
     }
-    return { duration: (to - from) / 1000, cars };
+    const timing = new Map<number, ReplayTiming>();
+    for (const r of intervals.sort((a, b) => String(a.date).localeCompare(String(b.date)))) {
+      const entry = timing.get(r.driver_number) ?? { t: [], gap: [], interval: [] };
+      entry.t.push(((parseDate(r.date) ?? from) - from) / 1000);
+      entry.gap.push(r.gap_to_leader ?? null);
+      entry.interval.push(r.interval ?? null);
+      timing.set(r.driver_number, entry);
+    }
+    return { duration: (to - from) / 1000, cars, timing };
   });
 }
