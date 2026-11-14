@@ -12,7 +12,9 @@ import { loadSession, parseDate, Session, getSchedule, FIRST_YEAR, Event } from 
 import { openf1Get, Row } from './openf1';
 import { buildNarrative, Headline } from './narrative';
 
-export const STORY_VERSION = 1;
+export const STORY_VERSION = 2;
+/** Telemetry files have their own version, so story changes don't force re-downloading them. */
+export const TELEMETRY_VERSION = 1;
 
 export type SessionKind = 'race' | 'qualifying' | 'practice';
 
@@ -118,6 +120,27 @@ export interface StandingRow {
   pointsAfter: number | null;
 }
 
+export interface RadioClip {
+  driver: number;
+  /** Seconds from `meta.t0`. */
+  t: number;
+  /** Lap (fractional) on the leader's timeline; races only. */
+  lap: number | null;
+  url: string;
+}
+
+export type MessageKind = 'penalty' | 'investigation' | 'track-limits' | 'flag' | 'conditions' | 'other';
+
+export interface RaceControlMessage {
+  t: number;
+  lap: number | null;
+  kind: MessageKind;
+  text: string;
+  /** Drivers named in the message. */
+  drivers: number[];
+  flag: string | null;
+}
+
 export interface Circuit {
   x: number[];
   y: number[];
@@ -159,6 +182,8 @@ export interface SessionStory {
   start: StartRow[];
   overtakes: { lap: number | null; by: number; on: number; position: number }[];
   standings: { drivers: StandingRow[]; teams: StandingRow[] };
+  radio: RadioClip[];
+  messages: RaceControlMessage[];
   circuit: Circuit | null;
   headlines: Headline[];
   summary: string[];
@@ -396,6 +421,27 @@ async function circuit(session: Session): Promise<Circuit | null> {
   };
 }
 
+/** Sort a race control message into a kind, for filtering and colouring. */
+export function classifyMessage(m: Row): MessageKind | null {
+  const text = String(m.message ?? '').toUpperCase();
+  if (m.flag === 'BLUE' || m.flag === 'CLEAR' || text.startsWith('CLEAR IN TRACK SECTOR')) return null; // noise
+  if (/BLACK AND WHITE/.test(text)) return 'flag'; // a warning, not a penalty
+  if (/PENALTY|DRIVE THROUGH|STOP AND GO|DISQUALIFIED|REPRIMAND|GRID DROP/.test(text)) return 'penalty';
+  if (/TRACK LIMITS|DELETED/.test(text)) return 'track-limits';
+  if (/INVESTIGAT|NOTED|NO FURTHER|REVIEWED/.test(text)) return 'investigation';
+  if (m.category === 'SafetyCar' || m.category === 'Flag' || /RED FLAG|GREEN LIGHT|CHEQUERED|SESSION (STARTED|RESUMED|SUSPENDED)/.test(text)) return 'flag';
+  if (/GRIP|RAIN|WET|OVERTAKE (ENABLED|DISABLED)|DRS/.test(text)) return 'conditions';
+  return 'other';
+}
+
+/** Driver numbers named in a message, e.g. "CARS 87 (BEA) AND 55 (SAI)". */
+function driversIn(m: Row): number[] {
+  const found = new Set<number>();
+  if (typeof m.driver_number === 'number') found.add(m.driver_number);
+  for (const match of String(m.message ?? '').matchAll(/(\d{1,2}) \([A-Z]{3}\)/g)) found.add(Number(match[1]));
+  return [...found];
+}
+
 // -- story -------------------------------------------------------------------------------
 
 export async function buildStory(year: number, round: number, code: string): Promise<SessionStory> {
@@ -529,6 +575,30 @@ export async function buildStory(year: number, round: number, code: string): Pro
         pointsAfter: c.points_current ?? null,
       })),
     },
+    radio: session.radio
+      .filter((r) => r.recording_url && r.date)
+      .map((r) => {
+        const at = parseDate(r.date)!;
+        return {
+          driver: r.driver_number,
+          t: Math.round((at - t0) / 100) / 10,
+          lap: timeline.length ? Math.round(toLapFraction(timeline, at) * 100) / 100 : null,
+          url: r.recording_url,
+        };
+      })
+      .sort((a, b) => a.t - b.t),
+    messages: session.raceControl
+      .map((m) => ({ m, kind: classifyMessage(m), at: parseDate(m.date) }))
+      .filter((x): x is { m: Row; kind: MessageKind; at: number } => x.kind !== null && x.at !== null)
+      .sort((a, b) => a.at - b.at)
+      .map(({ m, kind, at }) => ({
+        t: Math.round((at - t0) / 100) / 10,
+        lap: typeof m.lap_number === 'number' ? m.lap_number : null,
+        kind,
+        text: String(m.message),
+        drivers: driversIn(m),
+        flag: m.flag ?? null,
+      })),
     circuit: await circuit(session),
     headlines: [],
     summary: [],

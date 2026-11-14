@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import Plot from '../components/Plot';
 import { cleanLaps, SessionStory } from '../lib/story';
 import { focusOpacity, useFocus } from '../hooks';
+import { messageStyle, useRadio } from '../components/radio';
 import { colors, tyreColors } from '../theme';
 import { driverLookup, fmtSeconds, lineDash, periodAnnotations, periodShapes, totalLaps } from './common';
 
@@ -135,10 +136,55 @@ export function GapToLeader({ story }: Props) {
     ];
   });
 
+  // Team radio and penalties, placed on the driver's line at the moment they happened.
+  const { toggle } = useRadio();
+  const gapAt = (driver: number, lap: number) => {
+    const s = series.find((x) => x.driver === driver);
+    if (!s) return null;
+    const i = s.lap.findIndex((l) => l >= lap);
+    if (i <= 0) return s.gap[Math.max(i, 0)] ?? 0;
+    const g0 = s.gap[i - 1];
+    const g1 = s.gap[i];
+    if (g0 === null || g1 === null) return g1 ?? g0;
+    return g0 + (g1 - g0) * (lap - s.lap[i - 1]);
+  };
+  const clips = (story.radio ?? []).filter((c) => c.lap !== null && c.lap >= 1);
+  const penalties = (story.messages ?? []).filter((m) => m.kind === 'penalty' && m.lap && m.drivers.length && !/SERVED/i.test(m.text));
+  traces.push(
+    {
+      type: 'scatter',
+      mode: 'markers',
+      name: 'Team radio',
+      x: clips.map((c) => c.lap),
+      y: clips.map((c) => gapAt(c.driver, c.lap!)),
+      marker: { symbol: 'square', size: 9, color: messageStyle.radio.color, line: { color: clips.map((c) => drivers.get(c.driver)?.color), width: 2 } },
+      opacity: clips.map((c) => focusOpacity(focused, c.driver, 0.25)),
+      customdata: clips.map((c) => c.url),
+      text: clips.map((c) => drivers.get(c.driver)?.code),
+      hovertemplate: '%{text} team radio, lap %{x:.0f}<br><b>Click to listen</b><extra></extra>',
+      showlegend: false,
+    } as any,
+    {
+      type: 'scatter',
+      mode: 'markers',
+      name: 'Penalty',
+      x: penalties.map((m) => m.lap),
+      y: penalties.map((m) => gapAt(m.drivers[0], m.lap!)),
+      marker: { symbol: 'x', size: 11, color: messageStyle.penalty.color },
+      text: penalties.map((m) => m.text.replace(/^FIA STEWARDS: /, '')),
+      hovertemplate: 'Lap %{x}: %{text}<extra></extra>',
+      showlegend: false,
+    } as any
+  );
+
   return (
     <Plot
       filename="gap-to-leader"
       height={480}
+      onClick={(e: any) => {
+        const url = e?.points?.find((p: any) => typeof p.customdata === 'string' && p.customdata.endsWith('.mp3'))?.customdata;
+        if (url) toggle(url);
+      }}
       data={traces}
       layout={{
         shapes: periodShapes(story.periods),

@@ -172,6 +172,7 @@ export class Session {
   overtakes: Row[] = [];
   championshipDrivers: Row[] = [];
   championshipTeams: Row[] = [];
+  radio: Row[] = [];
 
   private ttl: number | undefined;
   private fastestTelemetry?: Promise<[Row, Telemetry | null][]>;
@@ -209,7 +210,7 @@ export class Session {
     }
     const isRace = this.code === 'R' || this.code === 'S';
     const none = Promise.resolve([] as Row[]);
-    const [drivers, stints, weather, results, positions, pits, raceControl, overtakes, champDrivers, champTeams] =
+    const [drivers, stints, weather, results, positions, pits, raceControl, overtakes, champDrivers, champTeams, radio] =
       await Promise.all([
         this.get('drivers', key),
         this.get('stints', key),
@@ -222,6 +223,7 @@ export class Session {
         isRace ? this.get('overtakes', key) : none,
         isRace ? this.get('championship_drivers', key) : none,
         isRace ? this.get('championship_teams', key) : none,
+        this.get('team_radio', key),
       ]);
     drivers.forEach((d) => this.drivers.set(d.driver_number, d));
     this.stints = stints;
@@ -233,6 +235,7 @@ export class Session {
     this.overtakes = overtakes;
     this.championshipDrivers = champDrivers;
     this.championshipTeams = champTeams;
+    this.radio = radio;
 
     this.laps.sort((a, b) => a.driver_number - b.driver_number || a.lap_number - b.lap_number);
     for (const lap of this.laps) {

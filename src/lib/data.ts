@@ -4,18 +4,18 @@
  * Actions) and falls back to computing it live from OpenF1 in the browser.
  */
 
-import { buildSeason, buildStory, buildTelemetry, SeasonStory, SessionStory, STORY_VERSION, TelemetrySet } from './story';
+import { buildSeason, buildStory, buildTelemetry, SeasonStory, SessionStory, STORY_VERSION, TELEMETRY_VERSION, TelemetrySet } from './story';
 import { DataError, parseDate } from './f1data';
 import { openf1Get, Row } from './openf1';
 
 const DATA_BASE = './data';
 
-async function precomputed<T extends { version: number }>(path: string): Promise<T | null> {
+async function precomputed<T extends { version: number }>(path: string, version = STORY_VERSION): Promise<T | null> {
   try {
     const response = await fetch(`${DATA_BASE}/${path}`, { cache: 'no-cache' });
     if (!response.ok || !response.headers.get('content-type')?.includes('json')) return null;
     const data = (await response.json()) as T;
-    return data.version === STORY_VERSION ? data : null;
+    return data.version === version ? data : null;
   } catch {
     return null;
   }
@@ -47,7 +47,7 @@ export function loadStory(year: number, round: number, code: string): Promise<Se
 export function loadTelemetry(year: number, round: number, code: string): Promise<TelemetrySet> {
   const c = code.toUpperCase();
   return once(`telemetry:${year}/${round}/${c}`, async () =>
-    (await precomputed<TelemetrySet>(`${year}/${round}/${c}.telemetry.json`)) ?? buildTelemetry(year, round, c)
+    (await precomputed<TelemetrySet>(`${year}/${round}/${c}.telemetry.json`, TELEMETRY_VERSION)) ?? buildTelemetry(year, round, c)
   );
 }
 

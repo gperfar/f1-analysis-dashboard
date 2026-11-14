@@ -9,6 +9,7 @@ import { useAsync } from '../hooks';
 import { colors } from '../theme';
 import { driverLookup, fmtSeconds, trackLayout, trackTraces } from './common';
 import { ErrorBox, Loading } from '../components/ui';
+import { feedItems, FeedRow } from '../components/radio';
 
 // -- helpers ---------------------------------------------------------------------------
 
@@ -341,6 +342,27 @@ export function Replay({ story }: { story: SessionStory }) {
           </Box>
         </Stack>
       )}
+      <LapEvents story={story} lap={lap} />
+    </Box>
+  );
+}
+
+/** Team radio and race control messages from the replayed lap. */
+function LapEvents({ story, lap }: { story: SessionStory; lap: number }) {
+  const items = feedItems(story).filter((item) => {
+    if (item.t < 0) return false; // before lights out (OpenF1 labels pre-race messages lap 1)
+    if (item.type === 'message') return item.lap === lap;
+    return item.lap !== null && item.lap > lap - 1 && item.lap <= lap;
+  });
+  if (!items.length) return null;
+  return (
+    <Box sx={{ mt: 2 }}>
+      <Typography variant="overline" sx={{ color: colors.muted }}>
+        During lap {lap}
+      </Typography>
+      {items.map((item, i) => (
+        <FeedRow key={i} story={story} item={item} />
+      ))}
     </Box>
   );
 }

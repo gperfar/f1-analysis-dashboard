@@ -18,7 +18,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { setResponseStore } from '../src/lib/openf1';
 import { clearSessionCache, FIRST_YEAR } from '../src/lib/f1data';
-import { buildSeason, buildStory, buildTelemetry, kindOf, SessionStory, STORY_VERSION } from '../src/lib/story';
+import { buildSeason, buildStory, buildTelemetry, kindOf, SessionStory, STORY_VERSION, TELEMETRY_VERSION } from '../src/lib/story';
 import { fsStore } from './fs-store';
 import { aiSummary } from './ai-summary';
 
@@ -97,13 +97,17 @@ async function main() {
       const wantsAi = withAi && kindOf(s.code) !== 'practice';
       const needsAi = wantsAi && !story?.aiSummary;
       const needsTelemetry =
-        TELEMETRY_CODES.has(s.code) && (await readJson<{ version: number }>(`${base}.telemetry.json`))?.version !== STORY_VERSION;
+        TELEMETRY_CODES.has(s.code) && (await readJson<{ version: number }>(`${base}.telemetry.json`))?.version !== TELEMETRY_VERSION;
 
       if (!needsStory && !needsAi && !needsTelemetry) {
         skipped++;
         continue;
       }
-      if (needsStory) story = await buildStory(s.year, s.round, s.code);
+      if (needsStory) {
+        const previousRecap = story?.aiSummary;
+        story = await buildStory(s.year, s.round, s.code);
+        if (previousRecap) story.aiSummary = previousRecap; // don't pay for it twice
+      }
       if (needsAi && story) {
         try {
           const text = await aiSummary(story);

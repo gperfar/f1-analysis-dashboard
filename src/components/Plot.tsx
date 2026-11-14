@@ -66,7 +66,7 @@ export default function Plot({ data, layout = {}, height = 380, filename = 'f1-c
         toImageButtonOptions: { format: 'png', filename, scale: 2 },
       }}
       useResizeHandler
-      style={{ width: '100%' }}
+      style={{ width: '100%', height }} // responsive mode sizes the plot to its container, so the container needs the height
       onClick={onClick}
     />
   );

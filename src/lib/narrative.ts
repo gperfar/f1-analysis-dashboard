@@ -100,6 +100,16 @@ export function buildNarrative(story: SessionStory): { headlines: Headline[]; su
     });
     if (neutralised.length) summary.push(`The race was neutralised by ${listJoin(neutralised)}.`);
 
+    // Stewards' decisions (not "penalty served" follow-ups)
+    const penalties = (story.messages ?? [])
+      .filter((m) => m.kind === 'penalty' && !/SERVED/i.test(m.text))
+      .map((m) => {
+        const what = m.text.toUpperCase().match(/\d+ SECOND TIME PENALTY|DRIVE THROUGH PENALTY|STOP AND GO PENALTY|\d+ PLACE GRID PENALTY|REPRIMAND|DISQUALIFIED/)?.[0];
+        return what && m.drivers.length ? `${m.drivers.map(code).join(' and ')} (${what.toLowerCase()})` : null;
+      })
+      .filter((p): p is string => p !== null);
+    if (penalties.length) summary.push(`The stewards penalised ${listJoin(penalties)}.`);
+
     const totalStops = story.pits.length;
     const winnerStops = p1 ? story.pits.filter((p) => p.driver === p1.driver).length : 0;
     if (totalStops) summary.push(`There were ${totalStops} pit stops in total${p1 ? `; the winner stopped ${winnerStops === 1 ? 'once' : `${winnerStops} times`}` : ''}.`);

@@ -10,6 +10,7 @@ import { driverLookup } from '../charts/common';
 import { ChampionshipImpact, FastestLapGaps, GapToLeader, GridToFlag, LapOneChanges, LaunchChart, PaceDistribution, PitStops, PositionChart, StintPace, TyreStrategy } from '../charts/race';
 import { GapToPole, IdealLap, LongRuns, QualifyingTable, SectorHeatmap, SessionTimeline } from '../charts/session';
 import { DriverPicker, HeadToHead, Replay, TrackDominance } from '../charts/telemetry';
+import { RadioFeed, RadioProvider } from '../components/radio';
 
 export default function SessionPage({ year, round, code }: { year: number; round: number; code: string }) {
   const story = useAsync(() => loadStory(year, round, code), `${year}/${round}/${code}`);
@@ -22,11 +23,13 @@ export default function SessionPage({ year, round, code }: { year: number; round
 
   return (
     <FocusContext.Provider value={focus}>
-      <Container maxWidth="lg" sx={{ py: { xs: 3, md: 5 } }}>
-        {story.loading && <Loading label="Building the story…" minHeight={400} />}
-        {story.error && <ErrorBox message={story.error} />}
-        {story.data && <Story story={story.data} />}
-      </Container>
+      <RadioProvider>
+        <Container maxWidth="lg" sx={{ py: { xs: 3, md: 5 } }}>
+          {story.loading && <Loading label="Building the story…" minHeight={400} />}
+          {story.error && <ErrorBox message={story.error} />}
+          {story.data && <Story story={story.data} />}
+        </Container>
+      </RadioProvider>
     </FocusContext.Provider>
   );
 }
@@ -265,13 +268,16 @@ function raceChapters(story: SessionStory): ChapterDef[] {
     takeaway: `${leaders.map(([n, laps]) => `${code(n)} led ${laps} lap${laps > 1 ? 's' : ''}`).slice(0, 3).join(', ')}.${story.periods.length ? ' Shaded bands mark safety car, VSC and red flag periods.' : ''}${passes.length ? ` ${passes.length} on-track overtakes after lap 1.` : ''}`,
     content: (
       <>
-        <Panel title="Gap to the leader" caption="Seconds behind the leader at the end of each lap. Circles mark pit stops. Highlight drivers above to follow their race.">
+        <Panel title="Gap to the leader" caption="Seconds behind the leader at the end of each lap. Circles mark pit stops, blue squares team radio (click to listen) and red crosses penalties. Highlight drivers above to follow their race.">
           <GapToLeader story={story} />
         </Panel>
         <Panel title="Running order"><PositionChart story={story} /></Panel>
       </>
     ),
   });
+
+  const radio = radioChapter(story);
+  if (radio) chapters.push(radio);
 
   chapters.push({
     id: 'strategy',
@@ -369,6 +375,8 @@ function qualifyingChapters(story: SessionStory): ChapterDef[] {
     { id: 'evolution', title: 'Session evolution', takeaway: 'Every push lap through the session. The track gets faster as rubber goes down.', content: <Panel><SessionTimeline story={story} /></Panel> },
   ];
   if (rows[0] && rows[1]) chapters.push({ id: 'head-to-head', title: 'Head to head', takeaway: 'The two fastest laps compared, metre by metre. Pick any two drivers.', content: <HeadToHeadChapter story={story} defaults={[rows[0].driver, rows[1].driver]} /> });
+  const radio = radioChapter(story);
+  if (radio) chapters.push(radio);
   return chapters;
 }
 
@@ -382,7 +390,39 @@ function practiceChapters(story: SessionStory): ChapterDef[] {
     { id: 'evolution', title: 'Session evolution', takeaway: 'Every push lap, coloured by tyre.', content: <Panel><SessionTimeline story={story} /></Panel> },
   ];
   if (f1 && f2) chapters.push({ id: 'head-to-head', title: 'Head to head', takeaway: 'The two fastest laps compared.', content: <HeadToHeadChapter story={story} defaults={[f1.driver, f2.driver]} /> });
+  const radio = radioChapter(story);
+  if (radio) chapters.push(radio);
   return chapters;
+}
+
+/** Team radio and race control, if the session has any. */
+function radioChapter(story: SessionStory): ChapterDef | null {
+  const radio = story.radio ?? [];
+  const messages = story.messages ?? [];
+  if (!radio.length && !messages.length) return null;
+  const drivers = driverLookup(story);
+  const penalties = messages.filter((m) => m.kind === 'penalty' && !/SERVED/i.test(m.text)).length;
+  const investigations = messages.filter((m) => m.kind === 'investigation' && /UNDER INVESTIGATION|WILL BE INVESTIGATED/i.test(m.text)).length;
+  const deleted = messages.filter((m) => m.kind === 'track-limits').length;
+  const talk = new Map<number, number>();
+  radio.forEach((c) => talk.set(c.driver, (talk.get(c.driver) ?? 0) + 1));
+  const chatty = [...talk].sort((a, b) => b[1] - a[1])[0];
+  const parts = [
+    radio.length && `${radio.length} team radio clips${chatty ? ` (most from ${drivers.get(chatty[0])?.code})` : ''}`,
+    investigations && `${investigations} investigation${investigations > 1 ? 's' : ''}`,
+    penalties && `${penalties} penalt${penalties > 1 ? 'ies' : 'y'}`,
+    deleted && `${deleted} lap times deleted for track limits`,
+  ].filter(Boolean);
+  return {
+    id: 'radio',
+    title: 'Radio and race control',
+    takeaway: `${parts.join(', ')}. Press play to listen; highlight drivers above to see only their messages.`,
+    content: (
+      <Panel>
+        <RadioFeed story={story} />
+      </Panel>
+    ),
+  };
 }
 
 function mode(values: number[]) {
