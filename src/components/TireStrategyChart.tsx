@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Plot from 'react-plotly.js';
 import { Typography, Box, CircularProgress, Alert } from '@mui/material';
-import axios from 'axios';
+import { apiGet } from '../lib/api';
 import { SessionData, TireStrategy } from '../types';
 
 interface TireStrategyChartProps {
@@ -18,7 +18,7 @@ const TireStrategyChart: React.FC<TireStrategyChartProps> = ({ sessionData }) =>
       try {
         setLoading(true);
         setError('');
-        const response = await axios.get(
+        const response = await apiGet(
           `/api/tire-strategy/${sessionData.session_info.year}/${sessionData.session_info.round}/${sessionData.session_info.session_type}`
         );
         setTireData(response.data.tire_strategy);

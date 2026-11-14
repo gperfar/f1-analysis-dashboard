@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Plot from 'react-plotly.js';
 import { Typography, Box, CircularProgress, Alert } from '@mui/material';
-import axios from 'axios';
+import { apiGet } from '../lib/api';
 import { SessionData } from '../types';
 
 interface Corner {
@@ -39,7 +39,7 @@ const CircuitMapChart: React.FC<CircuitMapChartProps> = ({ sessionData }) => {
       try {
         setLoading(true);
         setError('');
-        const response = await axios.get(
+        const response = await apiGet(
           `/api/circuit-map/${sessionData.session_info.year}/${sessionData.session_info.round}/${sessionData.session_info.session_type}`
         );
 
@@ -80,7 +80,7 @@ const CircuitMapChart: React.FC<CircuitMapChartProps> = ({ sessionData }) => {
   const trackY = circuitData.track_coordinates.map(coord => coord[1]);
 
   // Prepare data for Plotly
-  const data = [
+  const data: any[] = [
     // Track outline
     {
       type: 'scatter' as const,

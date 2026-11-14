@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Plot from 'react-plotly.js';
 import { Typography, Box, CircularProgress, Alert } from '@mui/material';
-import axios from 'axios';
+import { apiGet } from '../lib/api';
 import { SessionData } from '../types';
 
 interface SpeedData {
@@ -36,7 +36,7 @@ const SpeedDistanceChart: React.FC<SpeedDistanceChartProps> = ({ sessionData }) 
       try {
         setLoading(true);
         setError('');
-        const response = await axios.get(
+        const response = await apiGet(
           `/api/speed-distance/${sessionData.session_info.year}/${sessionData.session_info.round}/${sessionData.session_info.session_type}`
         );
         setSpeedData(response.data);

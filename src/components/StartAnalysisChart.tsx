@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Plot from 'react-plotly.js';
 import { Typography, Box, CircularProgress, Alert } from '@mui/material';
-import axios from 'axios';
+import { apiGet } from '../lib/api';
 import { StartAnalysis } from '../types';
 
 interface StartAnalysisChartProps {
@@ -19,7 +19,7 @@ const StartAnalysisChart: React.FC<StartAnalysisChartProps> = ({ year, round }) 
       try {
         setLoading(true);
         setError('');
-        const response = await axios.get(`/api/start-analysis/${year}/${round}`);
+        const response = await apiGet(`/api/start-analysis/${year}/${round}`);
         setStartData(response.data.start_analysis);
       } catch (err) {
         setError('Failed to load start analysis data');

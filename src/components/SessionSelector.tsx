@@ -10,7 +10,7 @@ import {
   Alert,
   Button
 } from '@mui/material';
-import axios from 'axios';
+import { apiGet, ApiError } from '../lib/api';
 import { RaceEvent, SessionData } from '../types';
 
 interface SessionSelectorProps {
@@ -51,7 +51,7 @@ const SessionSelector: React.FC<SessionSelectorProps> = ({
         setLoading(true);
         setError('');
         setLoadingMessage('Loading race schedule...');
-        const response = await axios.get(`/api/schedule/${year}`);
+        const response = await apiGet(`/api/schedule/${year}`);
         setEvents(response.data.events);
         setLoadingMessage('Finding most recent session...');
 
@@ -128,7 +128,7 @@ const SessionSelector: React.FC<SessionSelectorProps> = ({
       setError('');
       setLoadingMessage('Loading session data...');
 
-      const response = await axios.get(
+      const response = await apiGet(
         `/api/session/${year}/${selectedEvent.round}/${sessionType.toLowerCase()}`
       );
 
@@ -138,7 +138,7 @@ const SessionSelector: React.FC<SessionSelectorProps> = ({
       setLoadingMessage('Generating charts...');
       onSessionSelect(response.data);
     } catch (err) {
-      const detail = axios.isAxiosError(err) ? err.response?.data?.detail : undefined;
+      const detail = err instanceof ApiError ? err.detail : undefined;
       setError(typeof detail === 'string' ? detail : 'Failed to load session data');
       console.error('Error loading session:', err);
       onSessionSelect(null);

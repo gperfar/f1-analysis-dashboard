@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Plot from 'react-plotly.js';
 import { Typography, Box, CircularProgress, Alert } from '@mui/material';
-import axios from 'axios';
+import { apiGet } from '../lib/api';
 import { SessionData } from '../types';
 
 interface PositionData {
@@ -35,7 +35,7 @@ const PositionChangesChart: React.FC<PositionChangesChartProps> = ({ sessionData
       try {
         setLoading(true);
         setError('');
-        const response = await axios.get(
+        const response = await apiGet(
           `/api/position-changes/${sessionData.session_info.year}/${sessionData.session_info.round}/${sessionData.session_info.session_type}`
         );
         setPositionData(response.data);
