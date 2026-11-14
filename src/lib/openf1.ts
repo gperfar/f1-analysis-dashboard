@@ -67,38 +67,61 @@ export function buildUrl(endpoint: string, options: GetOptions = {}): string {
   return `${OPENF1_URL}/${endpoint}${parts.length ? `?${parts.join('&')}` : ''}`;
 }
 
-async function openCache(): Promise<Cache | null> {
-  try {
-    return 'caches' in window ? await caches.open(CACHE_NAME) : null;
-  } catch {
-    return null; // e.g. private mode or an insecure origin
-  }
+/** Where responses are cached. The browser uses the Cache API; the Node
+ *  data-build script swaps in a file-system store with `setResponseStore`. */
+export interface ResponseStore {
+  get(url: string): Promise<{ data: any; savedAt: number } | undefined>;
+  put(url: string, data: unknown): Promise<void>;
 }
 
-async function readCache(url: string, ttl?: number): Promise<any | undefined> {
-  const cache = await openCache();
-  const hit = await cache?.match(url);
-  if (!hit) return undefined;
-  const savedAt = Number(hit.headers.get('x-saved-at') ?? 0);
-  if (ttl !== undefined && Date.now() - savedAt > ttl * 1000) return undefined;
-  try {
-    return await hit.json();
-  } catch {
-    return undefined;
-  }
-}
-
-async function writeCache(url: string, data: unknown): Promise<void> {
-  // Don't cache empty answers: OpenF1 may still be processing the session.
-  if (Array.isArray(data) ? data.length === 0 : !data) return;
-  const cache = await openCache();
-  try {
+const browserStore: ResponseStore = {
+  async get(url) {
+    const cache = await openCache();
+    const hit = await cache?.match(url);
+    if (!hit) return undefined;
+    try {
+      return { data: await hit.json(), savedAt: Number(hit.headers.get('x-saved-at') ?? 0) };
+    } catch {
+      return undefined;
+    }
+  },
+  async put(url, data) {
+    const cache = await openCache();
     await cache?.put(
       url,
       new Response(JSON.stringify(data), {
         headers: { 'content-type': 'application/json', 'x-saved-at': String(Date.now()) },
       })
     );
+  },
+};
+
+let store: ResponseStore = browserStore;
+
+export function setResponseStore(newStore: ResponseStore) {
+  store = newStore;
+}
+
+async function openCache(): Promise<Cache | null> {
+  try {
+    return typeof caches !== 'undefined' ? await caches.open(CACHE_NAME) : null;
+  } catch {
+    return null; // e.g. private mode or an insecure origin
+  }
+}
+
+async function readCache(url: string, ttl?: number): Promise<any | undefined> {
+  const hit = await store.get(url).catch(() => undefined);
+  if (!hit) return undefined;
+  if (ttl !== undefined && Date.now() - hit.savedAt > ttl * 1000) return undefined;
+  return hit.data;
+}
+
+async function writeCache(url: string, data: unknown): Promise<void> {
+  // Don't cache empty answers: OpenF1 may still be processing the session.
+  if (Array.isArray(data) ? data.length === 0 : !data) return;
+  try {
+    await store.put(url, data);
   } catch {
     // Storage full or unavailable: the data still works, it just isn't cached.
   }
@@ -136,18 +159,44 @@ async function fetchJson(url: string, rateLimited: boolean): Promise<any> {
   throw new OpenF1Error(`Request failed after ${MAX_ATTEMPTS} attempts: ${url} (${lastError})`);
 }
 
+/** Network progress, for loading indicators: requests started and finished. */
+export interface Progress {
+  started: number;
+  finished: number;
+}
+const progress: Progress = { started: 0, finished: 0 };
+const listeners = new Set<(p: Progress) => void>();
+
+export function subscribeProgress(listener: (p: Progress) => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function notify() {
+  // Reset the counters once everything has finished, so the next batch starts at 0/N.
+  const snapshot = { ...progress };
+  if (progress.started === progress.finished) progress.started = progress.finished = 0;
+  listeners.forEach((l) => l(snapshot));
+}
+
 async function cachedGet(url: string, ttl: number | undefined, rateLimited: boolean) {
   const cached = await readCache(url, ttl);
   if (cached !== undefined) return cached;
 
   const pending = inFlight.get(url);
   if (pending) return pending;
+  progress.started++;
+  notify();
   const request = fetchJson(url, rateLimited)
     .then(async (data) => {
       await writeCache(url, data);
       return data;
     })
-    .finally(() => inFlight.delete(url));
+    .finally(() => {
+      inFlight.delete(url);
+      progress.finished++;
+      notify();
+    });
   inFlight.set(url, request);
   return request;
 }

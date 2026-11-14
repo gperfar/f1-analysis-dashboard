@@ -124,3 +124,7 @@ jspm_packages/
 
 # Python virtualenv
 .venv/
+
+# Data build outputs and cache
+.openf1-cache/
+public/data/

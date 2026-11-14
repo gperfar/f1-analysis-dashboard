@@ -140,6 +140,7 @@ export interface Telemetry {
   speed: number[]; // km/h
   throttle: (number | null)[];
   brake: (number | null)[];
+  gear: (number | null)[];
 }
 
 export interface StartRow {
@@ -166,6 +167,11 @@ export class Session {
   positions: Row[] = [];
   weather: Row[] = [];
   results: Row[] = [];
+  pits: Row[] = [];
+  raceControl: Row[] = [];
+  overtakes: Row[] = [];
+  championshipDrivers: Row[] = [];
+  championshipTeams: Row[] = [];
 
   private ttl: number | undefined;
   private fastestTelemetry?: Promise<[Row, Telemetry | null][]>;
@@ -201,18 +207,32 @@ export class Session {
         503
       );
     }
-    const [drivers, stints, positions, weather, results] = await Promise.all([
-      this.get('drivers', key),
-      this.get('stints', key),
-      this.get('position', key),
-      this.get('weather', key),
-      this.get('session_result', key),
-    ]);
+    const isRace = this.code === 'R' || this.code === 'S';
+    const none = Promise.resolve([] as Row[]);
+    const [drivers, stints, weather, results, positions, pits, raceControl, overtakes, champDrivers, champTeams] =
+      await Promise.all([
+        this.get('drivers', key),
+        this.get('stints', key),
+        this.get('weather', key),
+        this.get('session_result', key),
+        // Race-only extras: grid positions, pit stops, flags, overtakes, standings
+        isRace ? this.get('position', key) : none,
+        isRace ? this.get('pit', key) : none,
+        this.get('race_control', key),
+        isRace ? this.get('overtakes', key) : none,
+        isRace ? this.get('championship_drivers', key) : none,
+        isRace ? this.get('championship_teams', key) : none,
+      ]);
     drivers.forEach((d) => this.drivers.set(d.driver_number, d));
     this.stints = stints;
     this.positions = positions;
     this.weather = weather;
     this.results = results;
+    this.pits = pits;
+    this.raceControl = raceControl;
+    this.overtakes = overtakes;
+    this.championshipDrivers = champDrivers;
+    this.championshipTeams = champTeams;
 
     this.laps.sort((a, b) => a.driver_number - b.driver_number || a.lap_number - b.lap_number);
     for (const lap of this.laps) {
@@ -355,6 +375,7 @@ export class Session {
       speed,
       throttle: rows.map((r) => r.throttle ?? null),
       brake: rows.map((r) => r.brake ?? null),
+      gear: rows.map((r) => r.n_gear ?? null),
     };
   }
 
@@ -474,4 +495,9 @@ export function loadSession(year: number, round: number, code: string): Promise<
     () => sessions.delete(key) // retry on the next request
   );
   return pending;
+}
+
+/** Drop loaded sessions from memory (the data build calls this between sessions). */
+export function clearSessionCache() {
+  sessions.clear();
 }

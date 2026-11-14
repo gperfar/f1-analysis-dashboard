@@ -1,35 +1,43 @@
-# F1 Analysis Dashboard
+# F1 Analysis
 
-An F1 data analysis dashboard built with React and the [OpenF1](https://openf1.org) API. Explore session data from 2023 onwards through interactive charts.
+The story of every Formula 1 session since 2023, told with data. Built with React, Plotly and the free [OpenF1](https://openf1.org) API, and published on GitHub Pages: there's no backend.
 
-It runs entirely in the browser: there's no backend. The page calls OpenF1 directly, so it can be hosted as static files (it deploys to GitHub Pages).
+Live site: https://gperfar.github.io/f1-analysis-dashboard/
 
-## Features
+## What's in it
 
-- **Session Selection**: Choose any race weekend from 2023 onwards and any of its sessions (practice, sprint qualifying, sprint, qualifying, race)
-- **Fastest Lap Analysis**: Bar chart showing fastest lap times for each driver, ranked by performance
-- **Lap Time Gaps to Pole**: Horizontal bar chart showing time gaps to the pole position lap
-- **Start Analysis**: Acceleration analysis showing time to reach 100km/h and 200km/h from the start (race sessions only)
-- **Full Throttle Percentage**: Percentage of fastest lap spent at full throttle
-- **Tire Strategy**: Visual timeline showing tire compound usage for each driver throughout the session
-- **Position Changes**: Line chart showing position changes throughout the session
-- **Speed vs Distance**: Speed profiles for each driver's fastest lap
-- **Circuit Map**: Interactive track map with numbered corners
-- **Interactive Charts**: Built with Plotly.js for smooth, responsive visualizations
-- **Modern UI**: Material-UI based dark theme optimized for data analysis
+The home page opens on the most recent session. Every session page starts with headline cards and a written summary, then tells the story in chapters. Click drivers in the sticky bar to highlight them in every chart.
 
-## Prerequisites
+**Races and sprints**
 
-- Node.js 18+ (see `.nvmrc`)
-- Internet connection (data is fetched from OpenF1)
+1. **From grid to flag**: where everyone started and finished
+2. **The start**: places gained on lap 1, launch times to 100/200 km/h
+3. **How it unfolded**: gap to the leader and running order lap by lap, with safety car / VSC / red flag periods shaded and pit stops marked
+4. **Strategy**: tyre stints and pit stop times
+5. **Race pace**: lap-time distribution on clean laps, and lap-time trend per stint
+6. **Head to head**: any two drivers' fastest laps compared (speed, gap, throttle, brake) and a track map coloured by who was faster in each mini-sector
+7. **Replay**: car positions on track for any lap
+8. **Fastest laps**, and **Championship**: how the standings moved
 
-## Data source
+**Qualifying**: Q1/Q2/Q3 results, gap to pole with the knock-out cuts, sector rankings, best lap vs "ideal lap", session evolution, head to head.
 
-All data comes from [OpenF1](https://openf1.org), a free API with no account needed. It covers **2023 onwards**.
+**Practice**: fastest laps, long-run pace, session evolution, head to head.
 
-- OpenF1 allows 30 requests per minute per IP. The app spaces out its requests to stay under that, so the **first** load of a session's telemetry charts (speed and full throttle: one request per driver) takes about a minute.
-- Responses are cached in the browser (Cache API), so a finished session only downloads once per visitor.
-- Track layouts and corner numbers come from the MultiViewer circuit API (linked from OpenF1).
+**Season page**: calendar with each weekend's podium, and the drivers' and constructors' championship over the season.
+
+Every chart has a camera button to download it as a PNG.
+
+## How the data works
+
+All data comes from [OpenF1](https://openf1.org) (free, no account, 2023 onwards) and track layouts from the MultiViewer circuit API.
+
+- **Pre-computed data.** A GitHub Action (`.github/workflows/deploy.yml`) runs `scripts/build-data.ts` every 4 hours and on every push. It turns each finished session into JSON (`{year}/{round}/{CODE}.json` plus `.telemetry.json` for races and qualifying) and publishes it with the site, so pages load instantly. The files accumulate on the `data` branch; each run spends up to 45 minutes and builds the newest sessions first, so back-filling every season from 2023 takes a few runs.
+- **Live fallback.** If a session hasn't been pre-computed yet, the page builds the same data in the browser straight from OpenF1. OpenF1 allows 30 requests a minute, so a live session takes a few seconds, and its telemetry charts (one request per driver) about a minute. Responses are cached in the browser.
+- **Replay** always loads live: car positions for one lap, in a single request.
+
+### AI-written recaps (optional)
+
+Add an `ANTHROPIC_API_KEY` repository secret (Settings → Secrets and variables → Actions) and the data build will ask Claude (`claude-opus-5-5`) to write a short recap for each race, sprint and qualifying session, using only the computed facts. It then replaces the template summary on the page. Each recap is one short API call, made once per session.
 
 ## Running locally
 
@@ -38,62 +46,34 @@ npm install
 npm run dev
 ```
 
-Then open `http://localhost:5173`.
+Then open http://localhost:5173. Locally, pages build their data live from OpenF1 unless you generate it:
 
-## Deployment (GitHub Pages)
-
-`.github/workflows/deploy.yml` builds the app and publishes it to GitHub Pages on every push to `main`.
-
-One-time setup: in the repository's **Settings → Pages**, set **Source** to **GitHub Actions**.
-
-The site is then served at `https://<user>.github.io/<repo>/`. The build uses relative paths (`base: './'` in `vite.config.ts`), so it works under any path.
+```bash
+npm run build-data -- --out public/data --years 2026 --budget-minutes 10
+```
 
 ## Code structure
 
-- `src/lib/openf1.ts` - OpenF1 client: browser cache, rate limiter, retries
-- `src/lib/f1data.ts` - season schedule, sessions, laps, tyres, positions, telemetry, start analysis, circuit layout
-- `src/lib/api.ts` - `apiGet('/api/...')`: turns that data into what each chart needs
-- `src/components/` - one component per chart (Plotly.js), plus the session selector
+- `src/lib/openf1.ts`: OpenF1 client (cache, rate limiter, retries, progress events)
+- `src/lib/f1data.ts`: season schedule and session loading
+- `src/lib/story.ts`: turns a session into a `SessionStory` (and telemetry, and season data)
+- `src/lib/narrative.ts`: headline cards and the written summary
+- `src/lib/data.ts`: what pages call: pre-computed JSON first, live OpenF1 otherwise
+- `src/pages/`: session story and season pages
+- `src/charts/`: race, qualifying/practice and telemetry charts
+- `scripts/build-data.ts`: the pre-computing script (runs in Node with the same `src/lib` code)
 
-## Chart Types
+## Deployment
 
-### Fastest Lap Times
-- Horizontal bar chart showing lap times in ascending order
-- Color-coded by team
-- Hover for detailed information
+GitHub Pages, from GitHub Actions: in the repository's **Settings → Pages**, **Source** must be **GitHub Actions**. The build uses relative paths and hash URLs (`#/2026/20/R`), so it works under any path.
 
-### Start Analysis
-- Grouped bar chart comparing acceleration times
-- Shows time to reach 100km/h and 200km/h
-- Only available for race sessions
+## Ideas for later
 
-### Tire Strategy
-- Timeline visualization of tire compound usage
-- Color-coded tire compounds (Soft, Medium, Hard, Intermediate, Wet)
-- Shows when each driver changed tires during the session
-
-## Troubleshooting
-
-1. **No data available**: OpenF1 publishes a session's data shortly after it ends; sessions before 2023 aren't available
-2. **Slow loading**: The first load of a session's telemetry takes about a minute because of OpenF1's rate limit; after that it comes from the browser cache
-3. **Stale or broken data**: clear the site data in your browser to empty the cache
-
-## Future Enhancements
-
-The following features could be added in future versions:
-
-- **Cornering Analysis**: Detailed analysis of cornering speeds and apex data
-- **Fuel Consumption**: Fuel usage analysis throughout sessions
-- **DRS Analysis**: DRS activation and performance impact
-- **Head-to-Head Comparisons**: Compare two drivers' performance
-- **Historical Trends**: Compare performance across multiple seasons
-- **Circuit Maps**: Interactive circuit layouts with telemetry overlays
+- Cornering analysis: minimum speeds through each corner
+- DRS and energy deployment analysis
+- Comparing a driver across seasons
+- Shareable summary cards as images
 
 ## License
 
-This project is for educational and personal use. Please respect F1 data usage policies and OpenF1's terms.
-
-## Contributing
-
-Feel free to submit issues, feature requests, or pull requests to improve the application!
-
+This project is for educational and personal use. It's unofficial and not associated with Formula 1. Please respect F1 data usage policies and OpenF1's terms.
