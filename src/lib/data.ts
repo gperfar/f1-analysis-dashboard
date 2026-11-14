@@ -7,6 +7,7 @@
 import { buildSeason, buildStory, buildTelemetry, SeasonStory, SessionStory, STORY_VERSION, TELEMETRY_VERSION, TelemetrySet } from './story';
 import { DataError, parseDate } from './f1data';
 import { openf1Get, Row } from './openf1';
+import { VideoIndex, VideoRef, VIDEOS_VERSION } from './videos';
 
 const DATA_BASE = './data';
 
@@ -49,6 +50,12 @@ export function loadTelemetry(year: number, round: number, code: string): Promis
   return once(`telemetry:${year}/${round}/${c}`, async () =>
     (await precomputed<TelemetrySet>(`${year}/${round}/${c}.telemetry.json`, TELEMETRY_VERSION)) ?? buildTelemetry(year, round, c)
   );
+}
+
+/** Official highlights video for a session, if the data build found one. */
+export async function loadVideo(year: number, round: number, code: string): Promise<VideoRef | null> {
+  const index = await once('videos', async () => precomputed<VideoIndex>('videos.json', VIDEOS_VERSION));
+  return index?.videos[`${year}/${round}/${code.toUpperCase()}`] ?? null;
 }
 
 /** The most recent session that has finished, preferring races. */

@@ -11,6 +11,8 @@ import { ChampionshipImpact, FastestLapGaps, GapToLeader, GridToFlag, LapOneChan
 import { GapToPole, IdealLap, LongRuns, QualifyingTable, SectorHeatmap, SessionTimeline } from '../charts/session';
 import { DriverPicker, HeadToHead, Replay, TrackDominance } from '../charts/telemetry';
 import { RadioFeed, RadioProvider } from '../components/radio';
+import KeyMoments from '../components/KeyMoments';
+import Highlights from '../components/Highlights';
 
 export default function SessionPage({ year, round, code }: { year: number; round: number; code: string }) {
   const story = useAsync(() => loadStory(year, round, code), `${year}/${round}/${code}`);
@@ -113,6 +115,9 @@ function Hero({ story, chapters }: { story: SessionStory; chapters: { id: string
         )}
       </Box>
 
+      <KeyMoments story={story} />
+      <Highlights story={story} />
+
       <Stack direction="row" spacing={1} sx={{ mt: 3, flexWrap: 'wrap', rowGap: 1 }}>
         {chapters.map((c, i) => (
           <Button key={c.id} href={`#${c.id}`} onClick={(e) => { e.preventDefault(); document.getElementById(c.id)?.scrollIntoView({ behavior: 'smooth' }); }} size="small" color="inherit" sx={{ color: colors.muted }}>
@@ -200,9 +205,18 @@ function HeadToHeadChapter({ story, defaults }: { story: SessionStory; defaults:
 
 function ReplayChapter({ story }: { story: SessionStory }) {
   const [ref, seen] = useInView<HTMLDivElement>();
+  // Key moments ask for a lap with a "replay:goto" event; it may arrive before the replay has mounted.
+  const [goto, setGoto] = useState<{ lap: number; at: number } | null>(null);
+  useEffect(() => {
+    const onGoto = (e: Event) => setGoto({ lap: (e as CustomEvent).detail.lap, at: Date.now() });
+    window.addEventListener('replay:goto', onGoto);
+    return () => window.removeEventListener('replay:goto', onGoto);
+  }, []);
   return (
     <div ref={ref}>
-      <Panel caption="Car positions on track for the chosen lap of the leader. Drag to a lap, then press play.">{seen ? <Replay story={story} /> : <Box sx={{ height: 460 }} />}</Panel>
+      <Panel caption="Car positions on track for the chosen lap of the leader. Drag to a lap, then press play.">
+        {seen || goto ? <Replay story={story} goto={goto} /> : <Box sx={{ height: 460 }} />}
+      </Panel>
     </div>
   );
 }

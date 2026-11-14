@@ -21,6 +21,8 @@ import { clearSessionCache, FIRST_YEAR } from '../src/lib/f1data';
 import { buildSeason, buildStory, buildTelemetry, kindOf, SessionStory, STORY_VERSION, TELEMETRY_VERSION } from '../src/lib/story';
 import { fsStore } from './fs-store';
 import { aiSummary } from './ai-summary';
+import { collectVideos } from './videos';
+import type { EventRef } from '../src/lib/videos';
 
 const args = new Map<string, string>();
 process.argv.slice(2).forEach((a, i, all) => a.startsWith('--') && args.set(a.slice(2), all[i + 1] ?? ''));
@@ -61,6 +63,7 @@ const outOfTime = () => Date.now() - started > BUDGET_MS;
 async function main() {
   console.log(`Building data into ${OUT} for ${YEARS.join(', ')} (budget ${BUDGET_MS / 60_000} min, AI recaps ${withAi ? 'on' : 'off'})`);
   const todo: { year: number; round: number; code: string; end: number }[] = [];
+  const events: EventRef[] = [];
 
   for (const year of YEARS) {
     if (outOfTime()) break;
@@ -68,6 +71,7 @@ async function main() {
       const season = await buildSeason(year);
       await writeJson(join(OUT, String(year), 'season.json'), season);
       for (const e of season.events) {
+        events.push({ year, round: e.round, name: e.name, location: e.location, country: e.country });
         for (const s of e.sessions) {
           const end = Date.parse(s.dateEnd);
           if (end < Date.now() - FINAL_AFTER_MS) todo.push({ year, round: e.round, code: s.code, end });
@@ -80,6 +84,14 @@ async function main() {
   }
 
   todo.sort((a, b) => b.end - a.end); // newest first
+
+  // Official highlight videos (cheap: one feed request, plus searches if YOUTUBE_API_KEY is set)
+  try {
+    const videos = await collectVideos(join(OUT, 'videos.json'), events, todo.map((s) => `${s.year}/${s.round}/${s.code}`));
+    console.log(`✓ videos: ${videos.added} new, ${videos.total} in total${process.env.YOUTUBE_API_KEY ? '' : ' (set YOUTUBE_API_KEY to back-fill older sessions)'}`);
+  } catch (e) {
+    console.warn(`✗ videos: ${(e as Error).message}`);
+  }
   let built = 0;
   let skipped = 0;
   let failed = 0;

@@ -196,7 +196,7 @@ export function DriverPicker({ story, value, onChange, exclude }: { story: Sessi
 // -- replay ------------------------------------------------------------------------------
 
 /** Animated car positions on the track map for one lap of the race. */
-export function Replay({ story }: { story: SessionStory }) {
+export function Replay({ story, goto }: { story: SessionStory; goto?: { lap: number; at: number } | null }) {
   const drivers = driverLookup(story);
   const total = story.meta.totalLaps || 1;
   const [lap, setLap] = useState(1);
@@ -208,6 +208,13 @@ export function Replay({ story }: { story: SessionStory }) {
   const lastTick = useRef<number | null>(null);
 
   useEffect(() => setT(0), [lap]);
+  useEffect(() => {
+    if (!goto) return;
+    const target = Math.min(Math.max(1, goto.lap), total);
+    setLap(target);
+    setPendingLap(target);
+    setPlaying(false);
+  }, [goto?.at]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!playing || !replay.data) return;
     const id = window.setInterval(() => {

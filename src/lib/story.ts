@@ -12,7 +12,7 @@ import { loadSession, parseDate, Session, getSchedule, FIRST_YEAR, Event } from 
 import { openf1Get, Row } from './openf1';
 import { buildNarrative, Headline } from './narrative';
 
-export const STORY_VERSION = 2;
+export const STORY_VERSION = 3;
 /** Telemetry files have their own version, so story changes don't force re-downloading them. */
 export const TELEMETRY_VERSION = 1;
 
@@ -386,8 +386,12 @@ function flagPeriods(session: Session, timeline: number[]): FlagPeriod[] {
       // The SC comes in at the end of the current lap.
       const lap = Math.ceil(toLapFraction(timeline, t));
       close('SC', timeline[Math.min(lap, timeline.length - 1)] ?? t);
-    } else if (m.flag === 'RED' || text === 'RED FLAG') open.RED ??= t;
-    else if (text.includes('GREEN LIGHT') && open.RED !== undefined) close('RED', t);
+    } else if (m.flag === 'RED' || text.startsWith('RED FLAG')) {
+      // A red flag ends any safety car that was out ("RED FLAG - RACE SUSPENDED")
+      close('SC', t);
+      close('VSC', t);
+      open.RED ??= t;
+    } else if (open.RED !== undefined && (text.includes('GREEN LIGHT') || text.includes('SAFETY CAR LIGHTS ON'))) close('RED', t);
   }
   const last = timeline[timeline.length - 1];
   (Object.keys(open) as FlagPeriod['type'][]).forEach((type) => close(type, last));

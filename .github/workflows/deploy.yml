@@ -62,6 +62,8 @@ jobs:
         env:
           # Optional: set this repository secret to add AI-written recaps.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Optional: lets the build find highlight videos of older sessions.
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: npx tsx scripts/build-data.ts --out public/data --budget-minutes ${{ inputs.budget_minutes || '45' }}
 
       - name: Save data branch
