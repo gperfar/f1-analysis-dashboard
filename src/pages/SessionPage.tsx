@@ -14,7 +14,9 @@ import { CornerComparison, CornerSpeeds, DriverPicker, LapComparison, LapPicker,
 import { EnergyAverages, energySummary, EnergyThroughRace } from '../charts/energy';
 import { RadioFeed, RadioProvider } from '../components/radio';
 import KeyMoments from '../components/KeyMoments';
+import LapAnimation from '../charts/lapAnimation';
 import Highlights from '../components/Highlights';
+import Press from '../components/Press';
 
 export default function SessionPage({ year, round, code }: { year: number; round: number; code: string }) {
   const story = useAsync(() => loadStory(year, round, code), `${year}/${round}/${code}`);
@@ -122,6 +124,7 @@ function Hero({ story, chapters }: { story: SessionStory; chapters: { id: string
 
       <KeyMoments story={story} />
       <Highlights story={story} />
+      <Press story={story} />
 
       <Stack direction="row" spacing={1} sx={{ mt: 3, flexWrap: 'wrap', rowGap: 1 }}>
         {chapters.map((c, i) => (
@@ -223,6 +226,19 @@ function HeadToHeadChapter({ story, defaults }: { story: SessionStory; defaults:
           </Panel>
         </>
       )}
+    </div>
+  );
+}
+
+/** Ghost laps with a follow camera; telemetry (speed, gear, gaps) loads with it. */
+function LapAnimationChapter({ story }: { story: SessionStory }) {
+  const [ref, seen] = useInView<HTMLDivElement>();
+  const { year, round, code } = story.meta;
+  const telemetry = useAsync(() => (seen ? loadTelemetry(year, round, code) : never()), `${story.meta.sessionKey}:${seen}`);
+  const ready = !!telemetry.data || !!telemetry.error;
+  return (
+    <div ref={ref}>
+      <Panel>{seen && ready ? <LapAnimation story={story} telemetry={telemetry.data} /> : <Loading label="Loading car telemetry…" minHeight={480} />}</Panel>
     </div>
   );
 }
@@ -393,6 +409,7 @@ function raceChapters(story: SessionStory, energy: EnergySet | null): ChapterDef
     });
   }
 
+  if (story.circuit) chapters.push({ id: 'lap-animation', title: 'Lap animation', takeaway: 'Watch the best laps race each other from the same start, with the camera following one car. Pick drivers and laps, and switch between the 2D and 3D cameras.', content: <LapAnimationChapter story={story} /> });
   if (p1 && p2) chapters.push({ id: 'head-to-head', title: 'Head to head', takeaway: 'Any two laps compared metre by metre: speed, throttle, braking, energy zones and where the time went, corner by corner.', content: <HeadToHeadChapter story={story} defaults={[p1.driver, p2.driver]} /> });
   chapters.push({ id: 'corners', title: 'Corners and car setup', takeaway: 'How fast every car was through each corner on its best lap, and who traded downforce for straight-line speed.', content: <CornersChapter story={story} /> });
   if (story.circuit && story.meta.t0) chapters.push({ id: 'replay', title: 'Replay', takeaway: 'Watch any lap unfold on track.', content: <ReplayChapter story={story} /> });
@@ -444,6 +461,7 @@ function qualifyingChapters(story: SessionStory): ChapterDef[] {
   const chapters: ChapterDef[] = [
     { id: 'result', title: 'Result', takeaway: 'Best times from each part of qualifying. Purple marks the fastest time of each segment.', content: <Panel><QualifyingTable story={story} /></Panel> },
     { id: 'gaps', title: 'Gap to pole', takeaway: 'How far each driver was from pole; dashed lines show where the knock-out cuts fell.', content: <Panel><GapToPole story={story} /></Panel> },
+    ...(story.circuit ? [{ id: 'lap-animation', title: 'Lap animation', takeaway: 'The fastest laps racing each other as ghosts, with the camera following one car. Pick drivers and laps, and switch between 2D and 3D.', content: <LapAnimationChapter story={story} /> }] : []),
     {
       id: 'sectors',
       title: 'Where the time is',
@@ -470,6 +488,7 @@ function practiceChapters(story: SessionStory): ChapterDef[] {
   const [f1, f2] = story.fastest;
   const chapters: ChapterDef[] = [
     { id: 'fastest', title: 'Fastest laps', takeaway: 'One-lap pace. In practice, fuel loads and programmes differ, so read with care.', content: <Panel><FastestLapGaps story={story} /></Panel> },
+    ...(story.circuit ? [{ id: 'lap-animation', title: 'Lap animation', takeaway: 'The fastest laps racing each other as ghosts. Pick drivers and laps, and switch between 2D and 3D.', content: <LapAnimationChapter story={story} /> }] : []),
     { id: 'long-runs', title: 'Long runs', takeaway: 'Average lap time on stints of 5+ clean laps: the best hint of race pace. Bigger dots are longer runs.', content: <Panel><LongRuns story={story} /></Panel> },
     { id: 'evolution', title: 'Session evolution', takeaway: 'Every push lap, coloured by tyre.', content: <Panel><SessionTimeline story={story} /></Panel> },
   ];

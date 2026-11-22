@@ -18,10 +18,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { setResponseStore } from '../src/lib/openf1';
 import { clearSessionCache, FIRST_YEAR } from '../src/lib/f1data';
-import { buildEnergy, buildSeason, buildStory, buildTelemetry, ENERGY_VERSION, kindOf, SessionStory, STORY_VERSION, TELEMETRY_VERSION } from '../src/lib/story';
+import { buildEnergy, buildPositions, buildSeason, buildStory, buildTelemetry, ENERGY_VERSION, kindOf, POSITIONS_VERSION, SessionStory, STORY_VERSION, TELEMETRY_VERSION } from '../src/lib/story';
 import { fsStore } from './fs-store';
 import { aiSummary } from './ai-summary';
 import { collectVideos } from './videos';
+import { collectPress, SessionRef } from './press';
 import type { EventRef } from '../src/lib/videos';
 
 const args = new Map<string, string>();
@@ -66,6 +67,7 @@ async function main() {
   console.log(`Building data into ${OUT} for ${YEARS.join(', ')} (budget ${BUDGET_MS / 60_000} min, AI recaps ${withAi ? 'on' : 'off'})`);
   const todo: { year: number; round: number; code: string; end: number }[] = [];
   const events: EventRef[] = [];
+  const sessionRefs: SessionRef[] = [];
 
   for (const year of YEARS) {
     if (outOfTime()) break;
@@ -74,6 +76,14 @@ async function main() {
       await writeJson(join(OUT, String(year), 'season.json'), season);
       for (const e of season.events) {
         events.push({ year, round: e.round, name: e.name, location: e.location, country: e.country });
+        e.sessions.forEach((x, i) => {
+          const end = Date.parse(x.dateEnd);
+          if (end < Date.now())
+            sessionRefs.push({
+              year, round: e.round, code: x.code, name: x.name, event: e.name, location: e.location, country: e.country,
+              start: Date.parse(x.dateStart), end, nextStart: e.sessions[i + 1] ? Date.parse(e.sessions[i + 1].dateStart) : null,
+            });
+        });
         for (const s of e.sessions) {
           const end = Date.parse(s.dateEnd);
           if (end < Date.now() - FINAL_AFTER_MS) todo.push({ year, round: e.round, code: s.code, end });
@@ -93,6 +103,14 @@ async function main() {
     console.log(`✓ videos: ${videos.added} new, ${videos.total} in total${process.env.YOUTUBE_API_KEY ? '' : ' (set YOUTUBE_API_KEY to back-fill older sessions)'}`);
   } catch (e) {
     console.warn(`✗ videos: ${(e as Error).message}`);
+  }
+
+  // Press coverage from outlets' RSS feeds (headlines, teasers and links)
+  try {
+    const press = await collectPress(OUT, sessionRefs);
+    console.log(`✓ press: ${press.archived} articles archived, ${press.sessions} sessions updated`);
+  } catch (e) {
+    console.warn(`✗ press: ${(e as Error).message}`);
   }
   let built = 0;
   let skipped = 0;
@@ -116,7 +134,10 @@ async function main() {
       const needsEnergy =
         ENERGY_CODES.has(s.code) && (await readJson<{ version: number }>(`${base}.energy.json`))?.version !== ENERGY_VERSION;
 
-      if (!needsStory && !needsAi && !needsTelemetry && !needsEnergy) {
+      const needsPositions =
+        TELEMETRY_CODES.has(s.code) && (await readJson<{ version: number }>(`${base}.positions.json`))?.version !== POSITIONS_VERSION;
+
+      if (!needsStory && !needsAi && !needsTelemetry && !needsEnergy && !needsPositions) {
         skipped++;
         continue;
       }
@@ -136,6 +157,7 @@ async function main() {
       if (story && (needsStory || needsAi)) await writeJson(`${base}.json`, story);
       if (needsTelemetry) await writeJson(`${base}.telemetry.json`, await buildTelemetry(s.year, s.round, s.code));
       if (needsEnergy) await writeJson(`${base}.energy.json`, await buildEnergy(s.year, s.round, s.code));
+      if (needsPositions) await writeJson(`${base}.positions.json`, await buildPositions(s.year, s.round, s.code));
       built++;
       console.log(`✓ ${label}${story?.aiSummary && needsAi ? ' (+AI recap)' : ''}`);
     } catch (e) {

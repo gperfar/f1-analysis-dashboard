@@ -52,11 +52,14 @@ export function normalize(text: string): string {
 
 export function decodeEntities(text: string): string {
   return text
-    .replace(/&amp;/g, '&')
     .replace(/&#39;|&#x27;|&apos;/g, "'")
     .replace(/&quot;/g, '"')
     .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>');
+    .replace(/&gt;/g, '>')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&');
 }
 
 /** "year/round/CODE" for an official highlights title, or null if it isn't one. */

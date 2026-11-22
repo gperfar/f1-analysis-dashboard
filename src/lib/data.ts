@@ -4,10 +4,11 @@
  * Actions) and falls back to computing it live from OpenF1 in the browser.
  */
 
-import { buildSeason, buildStory, buildTelemetry, ENERGY_VERSION, EnergySet, SeasonStory, SessionStory, STORY_VERSION, TELEMETRY_VERSION, TelemetryLap, TelemetrySet, toTelemetryLap } from './story';
+import { buildSeason, buildStory, buildTelemetry, ENERGY_VERSION, EnergySet, LapPositions, POSITIONS_VERSION, PositionsSet, positionsFromRows, SeasonStory, SessionStory, STORY_VERSION, TELEMETRY_VERSION, TelemetryLap, TelemetrySet, toTelemetryLap } from './story';
 import { apiDate, DataError, parseDate, telemetryFromRows } from './f1data';
 import { openf1Get, Row } from './openf1';
 import { VideoIndex, VideoRef, VIDEOS_VERSION } from './videos';
+import { PRESS_VERSION, SessionPress } from './press';
 
 const DATA_BASE = './data';
 
@@ -77,10 +78,50 @@ export function loadLapTelemetry(story: SessionStory, driver: number, lap: numbe
   });
 }
 
+/** Absolute start (epoch ms) and duration of a driver's lap, from the story. */
+function lapWindow(story: SessionStory, driver: number, lap: number): { start: number; time: number } | null {
+  const t0 = parseDate(story.meta.t0 ?? story.meta.dateStart);
+  const series = story.laps.find((s) => s.driver === driver);
+  const i = series?.lap.indexOf(lap) ?? -1;
+  const end = i >= 0 ? series!.end[i] : null;
+  const time = i >= 0 ? series!.time[i] : null;
+  if (t0 === null || end === null || time === null) return null;
+  return { start: t0 + (end - time) * 1000, time };
+}
+
+/**
+ * Car positions for any lap of a driver: fastest laps come from the
+ * pre-computed file when there is one, any other lap is one OpenF1 request.
+ */
+export function loadLapPositions(story: SessionStory, driver: number, lap: number): Promise<LapPositions | null> {
+  const { year, round, code, sessionKey } = story.meta;
+  return once(`positions:${sessionKey}:${driver}:${lap}`, async () => {
+    const set = await once(`positions-set:${year}/${round}/${code}`, () =>
+      precomputed<PositionsSet>(`${year}/${round}/${code}.positions.json`, POSITIONS_VERSION)
+    );
+    const known = set?.drivers.find((d) => d.driver === driver && d.lap === lap);
+    if (known) return known;
+    const window = lapWindow(story, driver, lap);
+    if (!window) return null;
+    const rows = await openf1Get('location', {
+      params: { session_key: sessionKey, driver_number: driver },
+      filters: [`date>=${apiDate(window.start)}`, `date<${apiDate(window.start + window.time * 1000)}`],
+    });
+    const p = positionsFromRows(driver, lap, rows, window.start);
+    return p.t.length > 10 ? p : null;
+  });
+}
+
 /** Energy management per lap (only available once the data build has processed the session). */
 export function loadEnergy(year: number, round: number, code: string): Promise<EnergySet | null> {
   const c = code.toUpperCase();
   return once(`energy:${year}/${round}/${c}`, () => precomputed<EnergySet>(`${year}/${round}/${c}.energy.json`, ENERGY_VERSION));
+}
+
+/** Press coverage of a session (only once the data build has collected it). */
+export function loadPress(year: number, round: number, code: string): Promise<SessionPress | null> {
+  const c = code.toUpperCase();
+  return once(`press:${year}/${round}/${c}`, () => precomputed<SessionPress>(`${year}/${round}/${c}.press.json`, PRESS_VERSION));
 }
 
 /** Official highlights video for a session, if the data build found one. */

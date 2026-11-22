@@ -17,6 +17,7 @@ export const STORY_VERSION = 3;
 /** Telemetry files have their own version, so story changes don't force re-downloading them. */
 export const TELEMETRY_VERSION = 1;
 export const ENERGY_VERSION = 1;
+export const POSITIONS_VERSION = 1;
 
 export type SessionKind = 'race' | 'qualifying' | 'practice';
 
@@ -652,6 +653,55 @@ export async function buildTelemetry(year: number, round: number, code: string):
     version: TELEMETRY_VERSION,
     drivers: laps.filter(([, t]) => t).map(([lap, t]) => toTelemetryLap(lap.driver_number, lap.lap_number, lap.lap_duration, t!)),
   };
+}
+
+/** A lap's car positions: seconds from the lap start and raw OpenF1 coordinates (decimetres). */
+export interface LapPositions {
+  driver: number;
+  lap: number;
+  t: number[];
+  x: number[];
+  y: number[];
+  z: number[];
+}
+
+export interface PositionsSet {
+  version: number;
+  drivers: LapPositions[];
+}
+
+/** Rows from OpenF1 `location` for one lap -> LapPositions (drops "no signal" zeros). */
+export function positionsFromRows(driver: number, lap: number, rows: Row[], start: number): LapPositions {
+  const sorted = rows
+    .filter((r) => !(r.x === 0 && r.y === 0))
+    .map((r) => ({ t: ((parseDate(r.date) ?? start) - start) / 1000, x: r.x, y: r.y, z: r.z ?? 0 }))
+    .sort((a, b) => a.t - b.t);
+  return {
+    driver,
+    lap,
+    t: sorted.map((p) => Math.round(p.t * 1000) / 1000),
+    x: sorted.map((p) => p.x),
+    y: sorted.map((p) => p.y),
+    z: sorted.map((p) => p.z),
+  };
+}
+
+/** Car positions on every driver's fastest lap (for the lap animation). */
+export async function buildPositions(year: number, round: number, code: string): Promise<PositionsSet> {
+  const session = await loadSession(year, round, code);
+  const drivers: LapPositions[] = [];
+  for (const lap of session.fastestLaps()) {
+    const start = parseDate(lap.date_start);
+    if (start === null || !lap.lap_duration) continue;
+    const iso = (ms: number) => new Date(ms).toISOString().replace('Z', '');
+    const rows = await openf1Get('location', {
+      params: { session_key: session.sessionKey, driver_number: lap.driver_number },
+      filters: [`date>=${iso(start)}`, `date<${iso(start + lap.lap_duration * 1000)}`],
+    });
+    const p = positionsFromRows(lap.driver_number, lap.lap_number, rows, start);
+    if (p.t.length > 10) drivers.push(p);
+  }
+  return { version: POSITIONS_VERSION, drivers };
 }
 
 /** Lift-and-coast seconds and clipping metres on every lap, per driver. */
