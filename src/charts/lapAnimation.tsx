@@ -17,6 +17,7 @@ import { driverLookup, fmtSeconds } from './common';
 import { DriverChip, ErrorBox, Loading } from '../components/ui';
 import { LapPicker } from './headToHead';
 import FollowCam2D from './followCam2D';
+import type { CameraMode } from './ChaseCam3D';
 
 const ChaseCam3D = lazy(() => import('./ChaseCam3D'));
 
@@ -44,6 +45,7 @@ export default function LapAnimation({ story, telemetry }: { story: SessionStory
   });
   const [mode, setMode] = useState<'2d' | '3d'>('2d');
   const [viewMeters, setViewMeters] = useState(450);
+  const [cameraMode, setCameraMode] = useState<CameraMode>('chase');
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
@@ -165,6 +167,14 @@ export default function LapAnimation({ story, telemetry }: { story: SessionStory
               <ToggleButton value={1200}>Wide</ToggleButton>
             </ToggleButtonGroup>
           )}
+          {mode === '3d' && (
+            <ToggleButtonGroup size="small" exclusive value={cameraMode} onChange={(_, v) => v && setCameraMode(v)}>
+              <ToggleButton value="chase">Chase</ToggleButton>
+              <ToggleButton value="tv">TV</ToggleButton>
+              <ToggleButton value="heli">Heli</ToggleButton>
+              <ToggleButton value="free">Free</ToggleButton>
+            </ToggleButtonGroup>
+          )}
           {cars.length > 1 && follow && (
             <Select size="small" value={`${follow.driver.number}:${follow.lap}`} onChange={(e) => setFollowKey(String(e.target.value))} sx={{ minWidth: 130 }}>
               {cars.map((c) => (
@@ -187,8 +197,14 @@ export default function LapAnimation({ story, telemetry }: { story: SessionStory
             <FollowCam2D race={race} circuit={story.circuit} time={time} follow={follow} viewMeters={viewMeters} height={HEIGHT} />
           ) : (
             <Suspense fallback={<Loading label="Loading 3D view…" minHeight={HEIGHT} />}>
-              <ChaseCam3D race={race} circuit={story.circuit} time={time} follow={follow} height={HEIGHT} />
+              <ChaseCam3D race={race} circuit={story.circuit} time={time} follow={follow} height={HEIGHT} camera={cameraMode} />
             </Suspense>
+          )}
+
+          {mode === '3d' && cameraMode === 'free' && (
+            <Typography variant="caption" sx={{ position: 'absolute', right: 12, bottom: 12, px: 1, py: 0.5, bgcolor: 'rgba(13,13,16,0.7)', borderRadius: 1, color: colors.muted, pointerEvents: 'none' }}>
+              Drag to orbit · right-drag to pan · scroll to zoom
+            </Typography>
           )}
 
           {/* HUD: followed car */}
@@ -232,7 +248,7 @@ export default function LapAnimation({ story, telemetry }: { story: SessionStory
       )}
       <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap', rowGap: 0.5 }}>
         <Typography variant="caption" sx={{ color: colors.muted }}>
-          All laps start together. Gaps are measured at the same point on track against the car you follow. Positions come from OpenF1 location data (about 4 a second), smoothed between samples.
+          All laps start together. Gaps are measured at the same point on track against the car you follow. Each car's line comes from OpenF1 location data (about 4 a second); cars move along it at their telemetry speed. Trails show the last 1.5 s of each line.
         </Typography>
         {selection.length >= MAX_CARS && <Chip size="small" label={`Up to ${MAX_CARS} laps`} variant="outlined" />}
       </Stack>
