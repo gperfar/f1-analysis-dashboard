@@ -58,10 +58,18 @@ jobs:
           key: openf1-${{ github.run_id }}
           restore-keys: openf1-
 
+      # AI text costs API credit, so it switches itself off when the project
+      # looks abandoned: no commit to main in 60 days. Any push turns it back on.
+      - name: Check if the project is in use
+        id: activity
+        run: |
+          age_days=$(( ($(date +%s) - $(git log -1 --format=%ct)) / 86400 ))
+          if [ "$age_days" -le 60 ]; then echo "active=true" >> "$GITHUB_OUTPUT"; else echo "active=false" >> "$GITHUB_OUTPUT"; echo "Last commit $age_days days ago: AI recaps off"; fi
+
       - name: Build session data
         env:
           # Optional: set this repository secret to add AI-written recaps.
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ steps.activity.outputs.active == 'true' && secrets.ANTHROPIC_API_KEY || '' }}
           # Optional: lets the build find highlight videos of older sessions.
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         # Pushes publish quickly (5 minutes is enough for anything new);

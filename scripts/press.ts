@@ -25,6 +25,8 @@ const ARCHIVE_DAYS = 400;
 /** Sessions keep collecting coverage for this long after they end. */
 const COLLECT_FOR_MS = 5 * 24 * 3600_000;
 const MAX_ARTICLES = 10;
+/** Only sessions this recent get an AI digest. */
+const AI_WINDOW_MS = 30 * 24 * 3600_000;
 
 export interface SessionRef {
   year: number;
@@ -171,14 +173,15 @@ export async function collectPress(out: string, sessions: SessionRef[]): Promise
     const path = join(out, String(session.year), String(session.round), `${session.code}.press.json`);
     const existing = await readJson<SessionPress>(path);
     const recent = Date.now() - session.end < COLLECT_FOR_MS;
-    if (existing?.version === PRESS_VERSION && !recent && (existing.digest || !withAi || !existing.articles.length)) continue;
+    const aiWanted = withAi && Date.now() - session.end < AI_WINDOW_MS;
+    if (existing?.version === PRESS_VERSION && !recent && (existing.digest || !aiWanted || !existing.articles.length)) continue;
 
     const matched = matchArticles(session, articles);
     if (!matched.length && !existing) continue;
     const press: SessionPress = { version: PRESS_VERSION, builtAt: new Date().toISOString(), articles: matched };
     const sameArticles = existing?.articles.map((a) => a.url).join() === matched.map((a) => a.url).join();
     if (existing?.digest && sameArticles) press.digest = existing.digest;
-    else if (withAi && matched.length >= 3) {
+    else if (aiWanted && matched.length >= 3) {
       try {
         press.digest = (await digest(session, matched)) ?? undefined;
       } catch (e) {

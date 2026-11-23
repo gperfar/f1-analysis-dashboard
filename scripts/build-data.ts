@@ -11,7 +11,8 @@
  *
  * Existing files are kept, so each run only adds what's new; newest sessions
  * are built first. With ANTHROPIC_API_KEY set, race/sprint/qualifying stories
- * also get an AI-written recap (see ai-summary.ts).
+ * from the last 30 days also get an AI-written recap (see ai-summary.ts);
+ * older sessions keep the rule-based summary, so back-filling costs nothing.
  */
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -45,6 +46,8 @@ const TELEMETRY_CODES = new Set(['R', 'S', 'Q', 'SQ']);
 const ENERGY_CODES = new Set(['R', 'S']);
 const started = Date.now();
 const withAi = !!process.env.ANTHROPIC_API_KEY;
+/** Only sessions this recent get AI text (recaps here, digests in press.ts). */
+const AI_WINDOW_MS = 30 * 24 * 3600_000;
 
 setResponseStore(fsStore(CACHE));
 
@@ -126,7 +129,7 @@ async function main() {
     try {
       let story = await readJson<SessionStory>(`${base}.json`);
       const needsStory = !story || story.version !== STORY_VERSION;
-      const wantsAi = withAi && kindOf(s.code) !== 'practice';
+      const wantsAi = withAi && kindOf(s.code) !== 'practice' && Date.now() - s.end < AI_WINDOW_MS;
       const needsAi = wantsAi && !story?.aiSummary;
       const needsTelemetry =
         TELEMETRY_CODES.has(s.code) && (await readJson<{ version: number }>(`${base}.telemetry.json`))?.version !== TELEMETRY_VERSION;
