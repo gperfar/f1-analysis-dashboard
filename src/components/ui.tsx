@@ -7,7 +7,7 @@ import type { DriverRef } from '../lib/story';
 /** A chapter of the story: a numbered heading, one-line takeaway, then charts. */
 export function Chapter({ id, index, title, takeaway, children }: { id: string; index?: number; title: string; takeaway?: ReactNode; children: ReactNode }) {
   return (
-    <Box component="section" id={id} sx={{ scrollMarginTop: 96, mt: { xs: 5, md: 7 } }}>
+    <Box component="section" id={id} sx={{ scrollMarginTop: { xs: 64, md: 190 }, mt: { xs: 5, md: 7 } }}>
       <Stack direction="row" spacing={1.5} alignItems="baseline" sx={{ mb: 0.5 }}>
         {index !== undefined && (
           <Typography variant="overline" sx={{ color: colors.accent, fontSize: 13 }}>

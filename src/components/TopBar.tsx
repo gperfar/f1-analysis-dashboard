@@ -15,7 +15,7 @@ export default function TopBar({ route }: { route: Route }) {
   const now = Date.now();
 
   return (
-    <AppBar position="sticky" elevation={0} sx={{ bgcolor: 'rgba(13,13,16,0.85)', backdropFilter: 'blur(10px)', borderBottom: `1px solid ${colors.border}` }}>
+    <AppBar position="sticky" elevation={0} sx={{ position: { xs: 'static', md: 'sticky' }, bgcolor: 'rgba(13,13,16,0.85)', backdropFilter: 'blur(10px)', borderBottom: `1px solid ${colors.border}` }}>
       <Toolbar sx={{ gap: 2, flexWrap: 'wrap', py: { xs: 1, md: 0 }, minHeight: { md: 64 } }}>
         <Box component="a" href="#/" sx={{ display: 'flex', alignItems: 'center', gap: 1, textDecoration: 'none', color: 'inherit', mr: 1 }}>
           <Box sx={{ width: 10, height: 26, bgcolor: colors.accent, transform: 'skewX(-18deg)' }} />
@@ -74,7 +74,7 @@ export default function TopBar({ route }: { route: Route }) {
                     disabled={!done}
                     color={s.code === current.code ? 'primary' : 'default'}
                     variant={s.code === current.code ? 'filled' : 'outlined'}
-                    onClick={() => navigate({ page: 'session', year, round: event.round, code: s.code })}
+                    onClick={() => navigate({ page: 'session', year, round: event.round, code: s.code, tab: current.tab })}
                   />
                 );
               })}

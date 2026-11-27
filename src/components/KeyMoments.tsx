@@ -18,10 +18,9 @@ export const momentColors: Record<MomentType, string> = {
   fastest: '#c77dff',
 };
 
-/** Ask the replay chapter to show a lap (it listens for this event). */
+/** Ask the session page to open the replay at a lap (it listens for this event, switches tab and scrolls). */
 export function goToReplayLap(lap: number) {
   window.dispatchEvent(new CustomEvent('replay:goto', { detail: { lap } }));
-  document.getElementById('replay')?.scrollIntoView({ behavior: 'smooth' });
 }
 
 /** The race at a glance: a lap axis with markers, and a card per moment. */

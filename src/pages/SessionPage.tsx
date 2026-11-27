@@ -1,10 +1,10 @@
-import { ReactNode, useEffect, useRef, useState } from 'react';
-import { Box, Button, Chip, Container, Link, Paper, Stack, Typography } from '@mui/material';
+import { createContext, ReactNode, useContext, useEffect, useRef, useState } from 'react';
+import { Box, Button, Card, CardActionArea, Chip, Container, Link, Paper, Stack, Tab, Tabs, Typography } from '@mui/material';
 import { Chapter, contrastText, DriverChip, ErrorBox, Loading, Panel } from '../components/ui';
 import { loadEnergy, loadLapTelemetry, loadStory, loadTelemetry } from '../lib/data';
 import { cleanLaps, EnergySet, SessionStory } from '../lib/story';
 import { formatTime, onTrackOvertakes } from '../lib/narrative';
-import { FocusContext, useAsync, useFocus, useFocusState } from '../hooks';
+import { FocusContext, navigate, routeHref, useAsync, useFocus, useFocusState } from '../hooks';
 import { colors } from '../theme';
 import { driverLookup } from '../charts/common';
 import { ChampionshipImpact, FastestLapGaps, GapToLeader, GridToFlag, LapOneChanges, LaunchChart, PaceDistribution, PitStops, PositionChart, StintPace, TyreStrategy } from '../charts/race';
@@ -18,7 +18,7 @@ import LapAnimation from '../charts/lapAnimation';
 import Highlights from '../components/Highlights';
 import Press from '../components/Press';
 
-export default function SessionPage({ year, round, code }: { year: number; round: number; code: string }) {
+export default function SessionPage({ year, round, code, tab }: { year: number; round: number; code: string; tab?: string }) {
   const story = useAsync(() => loadStory(year, round, code), `${year}/${round}/${code}`);
   const focus = useFocusState();
   useEffect(() => focus.clear(), [year, round, code]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -33,37 +33,137 @@ export default function SessionPage({ year, round, code }: { year: number; round
         <Container maxWidth="lg" sx={{ py: { xs: 3, md: 5 } }}>
           {story.loading && <Loading label="Building the story…" minHeight={400} />}
           {story.error && <ErrorBox message={story.error} />}
-          {story.data && <Story story={story.data} />}
+          {story.data && <Story story={story.data} tab={tab} />}
         </Container>
       </RadioProvider>
     </FocusContext.Provider>
   );
 }
 
-function Story({ story }: { story: SessionStory }) {
+// -- tabs --------------------------------------------------------------------------------
+
+type TabId = 'story' | 'strategy' | 'pace' | 'telemetry' | 'radio' | 'championship';
+
+const TAB_INFO: Record<TabId, { label: string; blurb: string }> = {
+  story: { label: 'Story', blurb: 'What happened, in short' },
+  strategy: { label: 'Strategy & pace', blurb: 'Tyres, pit stops, race pace and energy' },
+  pace: { label: 'Pace', blurb: 'Sectors, long runs and how the track evolved' },
+  telemetry: { label: 'Telemetry', blurb: 'Lap animation, lap comparisons, corners and replay' },
+  radio: { label: 'Radio', blurb: 'Team radio and race control' },
+  championship: { label: 'Championship', blurb: 'How the result moved the standings' },
+};
+
+function Story({ story, tab }: { story: SessionStory; tab?: string }) {
   const kind = story.meta.kind;
   const { year, round, code } = story.meta;
   // Energy analysis only exists once the data build has processed the session.
   const energy = useAsync(() => (kind === 'race' ? loadEnergy(year, round, code) : Promise.resolve(null)), `energy:${year}/${round}/${code}`);
   const chapters = kind === 'race' ? raceChapters(story, energy.data) : kind === 'qualifying' ? qualifyingChapters(story) : practiceChapters(story);
+  const order: TabId[] = kind === 'race' ? ['story', 'strategy', 'telemetry', 'radio', 'championship'] : ['story', 'pace', 'telemetry', 'radio'];
+  const tabs = order.filter((t) => chapters.some((c) => c.tab === t));
+  const active: TabId = tabs.includes(tab as TabId) ? (tab as TabId) : 'story';
+  const shown = chapters.filter((c) => c.tab === active);
+  const hrefFor = (t: TabId) => routeHref({ page: 'session', year, round, code, tab: t });
+
+  // Key moments open the replay: switch to its tab, then the replay jumps to the lap.
+  const [replayGoto, setReplayGoto] = useState<{ lap: number; at: number } | null>(null);
+  useEffect(() => {
+    const onGoto = (e: Event) => {
+      setReplayGoto({ lap: (e as CustomEvent).detail.lap, at: Date.now() });
+      navigate({ page: 'session', year, round, code, tab: 'telemetry' });
+    };
+    window.addEventListener('replay:goto', onGoto);
+    return () => window.removeEventListener('replay:goto', onGoto);
+  }, [year, round, code]);
+
+  // When the tab changes, bring the tab bar back to the top if the page was scrolled past it.
+  const anchor = useRef<HTMLDivElement>(null);
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    const el = anchor.current;
+    if (!el) return;
+    const top = el.getBoundingClientRect().top + window.scrollY - (window.innerWidth < 900 ? 0 : 64);
+    if (window.scrollY > top) window.scrollTo({ top, behavior: 'instant' as ScrollBehavior });
+  }, [active]);
+
   return (
-    <>
-      <Hero story={story} chapters={chapters.map((c) => ({ id: c.id, title: c.title }))} />
+    <ReplayGotoContext.Provider value={replayGoto}>
+      <Header story={story} />
+      {active === 'story' && <StoryHero story={story} />}
+      <div ref={anchor} />
+      <TabBar tabs={tabs} active={active} hrefFor={hrefFor} />
       <DriverBar story={story} />
-      {chapters.map((c, i) => (
+      {shown.length > 2 && (
+        <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap', rowGap: 1 }}>
+          {shown.map((c, i) => (
+            <Button key={c.id} href={`#${c.id}`} onClick={(e) => { e.preventDefault(); document.getElementById(c.id)?.scrollIntoView({ behavior: 'smooth' }); }} size="small" color="inherit" sx={{ color: colors.muted }}>
+              {String(i + 1).padStart(2, '0')} {c.title}
+            </Button>
+          ))}
+        </Stack>
+      )}
+      {shown.map((c, i) => (
         <Chapter key={c.id} id={c.id} index={i + 1} title={c.title} takeaway={c.takeaway}>
           {c.content}
         </Chapter>
       ))}
+      {active === 'story' && <MoreTabs tabs={tabs.filter((t) => t !== 'story')} chapters={chapters} hrefFor={hrefFor} />}
       <Typography variant="body2" sx={{ color: colors.muted, mt: 8, textAlign: 'center' }}>
         Data: <Link href="https://openf1.org" color="inherit">OpenF1</Link> · track layouts: MultiViewer. Unofficial; not associated with Formula 1.
       </Typography>
-    </>
+    </ReplayGotoContext.Provider>
   );
 }
 
+/** Sticky tabs under the top bar. They are plain links, so each tab has its own URL. */
+function TabBar({ tabs, active, hrefFor }: { tabs: TabId[]; active: TabId; hrefFor: (t: TabId) => string }) {
+  return (
+    <Paper square sx={{ position: 'sticky', top: { xs: 0, md: 64 }, zIndex: 6, mt: 3, mx: { xs: -2, sm: 0 }, borderRadius: { sm: 2 }, bgcolor: 'rgba(22,22,27,0.95)', backdropFilter: 'blur(8px)' }}>
+      <Tabs value={active} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile sx={{ minHeight: 46, '& .MuiTab-root': { minHeight: 46, textTransform: 'none', fontSize: 15, fontWeight: 600 } }}>
+        {tabs.map((t) => (
+          <Tab key={t} value={t} label={TAB_INFO[t].label} component="a" href={hrefFor(t)} />
+        ))}
+      </Tabs>
+    </Paper>
+  );
+}
+
+/** End of the story tab: where to go next. */
+function MoreTabs({ tabs, chapters, hrefFor }: { tabs: TabId[]; chapters: ChapterDef[]; hrefFor: (t: TabId) => string }) {
+  if (!tabs.length) return null;
+  return (
+    <Box sx={{ mt: { xs: 5, md: 7 } }}>
+      <Typography variant="h4" component="h2" sx={{ fontSize: { xs: 24, md: 28 }, mb: 2 }}>
+        Keep exploring
+      </Typography>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: `repeat(${Math.min(tabs.length, 4)}, 1fr)` }, gap: 1.5 }}>
+        {tabs.map((t) => (
+          <Card key={t}>
+            <CardActionArea href={hrefFor(t)} sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'flex-start' }}>
+              <Typography variant="h6">{TAB_INFO[t].label} →</Typography>
+              <Typography variant="body2" sx={{ color: colors.muted, mb: 1 }}>
+                {TAB_INFO[t].blurb}
+              </Typography>
+              <Typography variant="caption" sx={{ color: colors.muted }}>
+                {chapters.filter((c) => c.tab === t).map((c) => c.title).join(' · ')}
+              </Typography>
+            </CardActionArea>
+          </Card>
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
+const ReplayGotoContext = createContext<{ lap: number; at: number } | null>(null);
+
 interface ChapterDef {
   id: string;
+  tab: TabId;
   title: string;
   takeaway?: ReactNode;
   content: ReactNode;
@@ -71,8 +171,7 @@ interface ChapterDef {
 
 // -- header ------------------------------------------------------------------------------
 
-function Hero({ story, chapters }: { story: SessionStory; chapters: { id: string; title: string }[] }) {
-  const drivers = driverLookup(story);
+function Header({ story }: { story: SessionStory }) {
   const { meta } = story;
   const date = meta.dateStart ? new Date(meta.dateStart).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : '';
   return (
@@ -90,6 +189,15 @@ function Hero({ story, chapters }: { story: SessionStory; chapters: { id: string
         {meta.weather?.rain && <Chip size="small" label="Rain" color="info" variant="outlined" />}
       </Stack>
 
+    </Box>
+  );
+}
+
+/** The Story tab's opener: headline numbers, recap, key moments, video and press. */
+function StoryHero({ story }: { story: SessionStory }) {
+  const drivers = driverLookup(story);
+  return (
+    <Box>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: `repeat(${Math.min(story.headlines.length, 4)}, 1fr)` }, gap: 1.5 }}>
         {story.headlines.map((h) => {
           const d = h.driver != null ? drivers.get(h.driver) : undefined;
@@ -126,13 +234,6 @@ function Hero({ story, chapters }: { story: SessionStory; chapters: { id: string
       <Highlights story={story} />
       <Press story={story} />
 
-      <Stack direction="row" spacing={1} sx={{ mt: 3, flexWrap: 'wrap', rowGap: 1 }}>
-        {chapters.map((c, i) => (
-          <Button key={c.id} href={`#${c.id}`} onClick={(e) => { e.preventDefault(); document.getElementById(c.id)?.scrollIntoView({ behavior: 'smooth' }); }} size="small" color="inherit" sx={{ color: colors.muted }}>
-            {String(i + 1).padStart(2, '0')} {c.title}
-          </Button>
-        ))}
-      </Stack>
     </Box>
   );
 }
@@ -143,7 +244,7 @@ function DriverBar({ story }: { story: SessionStory }) {
   const drivers = driverLookup(story);
   const order = story.classification.map((r) => r.driver).filter((n) => drivers.has(n));
   return (
-    <Paper sx={{ position: 'sticky', top: { xs: 104, md: 64 }, zIndex: 5, mt: 3, px: 1.5, py: 1, bgcolor: 'rgba(22,22,27,0.92)', backdropFilter: 'blur(8px)' }}>
+    <Paper sx={{ position: { xs: 'static', md: 'sticky' }, top: { md: 64 + 46 + 6 }, zIndex: 5, mt: 1, px: 1.5, py: 1, bgcolor: 'rgba(22,22,27,0.92)', backdropFilter: 'blur(8px)' }}>
       <Stack direction="row" spacing={0.75} alignItems="center" sx={{ overflowX: 'auto', '&::-webkit-scrollbar': { display: 'none' } }}>
         <Typography variant="caption" sx={{ color: colors.muted, whiteSpace: 'nowrap', mr: 0.5 }}>
           Highlight:
@@ -268,13 +369,15 @@ function CornersChapter({ story }: { story: SessionStory }) {
 
 function ReplayChapter({ story }: { story: SessionStory }) {
   const [ref, seen] = useInView<HTMLDivElement>();
-  // Key moments ask for a lap with a "replay:goto" event; it may arrive before the replay has mounted.
-  const [goto, setGoto] = useState<{ lap: number; at: number } | null>(null);
+  // A key moment on the Story tab asks for a lap; the replay may only now be mounting.
+  const goto = useContext(ReplayGotoContext);
   useEffect(() => {
-    const onGoto = (e: Event) => setGoto({ lap: (e as CustomEvent).detail.lap, at: Date.now() });
-    window.addEventListener('replay:goto', onGoto);
-    return () => window.removeEventListener('replay:goto', onGoto);
-  }, []);
+    if (!goto || Date.now() - goto.at > 3000) return;
+    // aim at the chapter heading; again once charts above have loaded and moved it
+    const go = () => document.getElementById('replay')?.scrollIntoView({ behavior: 'smooth' });
+    const timers = [setTimeout(go, 150), setTimeout(go, 1500)];
+    return () => timers.forEach(clearTimeout);
+  }, [goto]);
   return (
     <div ref={ref}>
       <Panel caption="Car positions on track for the chosen lap of the leader. Drag to a lap, then press play.">
@@ -316,7 +419,7 @@ function raceChapters(story: SessionStory, energy: EnergySet | null): ChapterDef
 
   const chapters: ChapterDef[] = [
     {
-      id: 'result',
+      id: 'result', tab: 'story' as const,
       title: 'From grid to flag',
       takeaway: p1 ? `${drivers.get(p1.driver)?.name} won from ${p1.grid ? `P${p1.grid}` : 'the grid'}. Lines show where everyone started and finished.` : undefined,
       content: <Panel><GridToFlag story={story} /></Panel>,
@@ -325,7 +428,7 @@ function raceChapters(story: SessionStory, energy: EnergySet | null): ChapterDef
 
   if (story.start.length) {
     chapters.push({
-      id: 'start',
+      id: 'start', tab: 'story' as const,
       title: 'The start',
       takeaway: lap1[0]?.gain > 0 ? `${code(lap1[0].driver)} was the star of lap 1, gaining ${lap1[0].gain} places.${lap1[lap1.length - 1]?.gain < -2 ? ` ${code(lap1[lap1.length - 1].driver)} lost ${-lap1[lap1.length - 1].gain}.` : ''}` : 'Positions gained and lost on the opening lap.',
       content: (
@@ -340,7 +443,7 @@ function raceChapters(story: SessionStory, energy: EnergySet | null): ChapterDef
   }
 
   chapters.push({
-    id: 'unfolded',
+    id: 'unfolded', tab: 'story' as const,
     title: 'How it unfolded',
     takeaway: `${leaders.map(([n, laps]) => `${code(n)} led ${laps} lap${laps > 1 ? 's' : ''}`).slice(0, 3).join(', ')}.${story.periods.length ? ' Shaded bands mark safety car, VSC and red flag periods.' : ''}${passes.length ? ` ${passes.length} on-track overtakes after lap 1.` : ''}`,
     content: (
@@ -357,7 +460,7 @@ function raceChapters(story: SessionStory, energy: EnergySet | null): ChapterDef
   if (radio) chapters.push(radio);
 
   chapters.push({
-    id: 'strategy',
+    id: 'strategy', tab: 'strategy' as const,
     title: 'Strategy',
     takeaway: `Most drivers stopped ${commonStops === 1 ? 'once' : `${commonStops} times`}${p1 ? `; the winner stopped ${(stopsBy.get(p1.driver) ?? 0) === 1 ? 'once' : `${stopsBy.get(p1.driver) ?? 0} times`}` : ''}.`,
     content: (
@@ -375,7 +478,7 @@ function raceChapters(story: SessionStory, energy: EnergySet | null): ChapterDef
   });
 
   chapters.push({
-    id: 'pace',
+    id: 'pace', tab: 'strategy' as const,
     title: 'Race pace',
     takeaway: medians[0] ? `On clean laps (no lap 1, pit laps or safety cars), ${code(medians[0].driver)} had the best median pace at ${formatTime(medians[0].median)}${medians[1] ? `, ${(medians[1].median - medians[0].median).toFixed(3)}s a lap quicker than ${code(medians[1].driver)}` : ''}.` : undefined,
     content: (
@@ -393,7 +496,7 @@ function raceChapters(story: SessionStory, energy: EnergySet | null): ChapterDef
     const mostLift = [...summary].sort((x, y) => y.lift - x.lift)[0];
     const mostClip = [...summary].sort((x, y) => y.clip - x.clip)[0];
     chapters.push({
-      id: 'energy',
+      id: 'energy', tab: 'strategy' as const,
       title: 'Energy management',
       takeaway: mostLift && mostClip
         ? `${code(mostLift.driver)} lifted and coasted the most (${mostLift.lift.toFixed(1)}s per lap on average); ${code(mostClip.driver)} spent the most distance clipping (${Math.round(mostClip.clip)} m per lap). Saving energy here buys deployment elsewhere.`
@@ -409,13 +512,13 @@ function raceChapters(story: SessionStory, energy: EnergySet | null): ChapterDef
     });
   }
 
-  if (story.circuit) chapters.push({ id: 'lap-animation', title: 'Lap animation', takeaway: 'Watch the best laps race each other from the same start, with the camera following one car. Pick drivers and laps, and switch between the 2D and 3D cameras.', content: <LapAnimationChapter story={story} /> });
-  if (p1 && p2) chapters.push({ id: 'head-to-head', title: 'Head to head', takeaway: 'Any two laps compared metre by metre: speed, throttle, braking, energy zones and where the time went, corner by corner.', content: <HeadToHeadChapter story={story} defaults={[p1.driver, p2.driver]} /> });
-  chapters.push({ id: 'corners', title: 'Corners and car setup', takeaway: 'How fast every car was through each corner on its best lap, and who traded downforce for straight-line speed.', content: <CornersChapter story={story} /> });
-  if (story.circuit && story.meta.t0) chapters.push({ id: 'replay', title: 'Replay', takeaway: 'Watch any lap unfold on track.', content: <ReplayChapter story={story} /> });
+  if (story.circuit) chapters.push({ id: 'lap-animation', tab: 'telemetry' as const, title: 'Lap animation', takeaway: 'Watch the best laps race each other from the same start, with the camera following one car. Pick drivers and laps, and switch between the 2D and 3D cameras.', content: <LapAnimationChapter story={story} /> });
+  if (p1 && p2) chapters.push({ id: 'head-to-head', tab: 'telemetry' as const, title: 'Head to head', takeaway: 'Any two laps compared metre by metre: speed, throttle, braking, energy zones and where the time went, corner by corner.', content: <HeadToHeadChapter story={story} defaults={[p1.driver, p2.driver]} /> });
+  chapters.push({ id: 'corners', tab: 'telemetry' as const, title: 'Corners and car setup', takeaway: 'How fast every car was through each corner on its best lap, and who traded downforce for straight-line speed.', content: <CornersChapter story={story} /> });
+  if (story.circuit && story.meta.t0) chapters.push({ id: 'replay', tab: 'telemetry' as const, title: 'Replay', takeaway: 'Watch any lap unfold on track.', content: <ReplayChapter story={story} /> });
 
   chapters.push({
-    id: 'fastest',
+    id: 'fastest', tab: 'telemetry' as const,
     title: 'Fastest laps',
     takeaway: story.fastest[0] ? `${code(story.fastest[0].driver)} set the fastest lap, ${formatTime(story.fastest[0].time)} on lap ${story.fastest[0].lap}.` : undefined,
     content: <Panel><FastestLapGaps story={story} /></Panel>,
@@ -423,7 +526,7 @@ function raceChapters(story: SessionStory, energy: EnergySet | null): ChapterDef
 
   if (story.standings.drivers.length) {
     chapters.push({
-      id: 'championship',
+      id: 'championship', tab: 'championship' as const,
       title: 'Championship',
       takeaway: (
         <>
@@ -459,11 +562,11 @@ function qualifyingChapters(story: SessionStory): ChapterDef[] {
     return sorted[0]?.driver;
   });
   const chapters: ChapterDef[] = [
-    { id: 'result', title: 'Result', takeaway: 'Best times from each part of qualifying. Purple marks the fastest time of each segment.', content: <Panel><QualifyingTable story={story} /></Panel> },
-    { id: 'gaps', title: 'Gap to pole', takeaway: 'How far each driver was from pole; dashed lines show where the knock-out cuts fell.', content: <Panel><GapToPole story={story} /></Panel> },
-    ...(story.circuit ? [{ id: 'lap-animation', title: 'Lap animation', takeaway: 'The fastest laps racing each other as ghosts, with the camera following one car. Pick drivers and laps, and switch between 2D and 3D.', content: <LapAnimationChapter story={story} /> }] : []),
+    { id: 'result', tab: 'story' as const, title: 'Result', takeaway: 'Best times from each part of qualifying. Purple marks the fastest time of each segment.', content: <Panel><QualifyingTable story={story} /></Panel> },
+    { id: 'gaps', tab: 'story' as const, title: 'Gap to pole', takeaway: 'How far each driver was from pole; dashed lines show where the knock-out cuts fell.', content: <Panel><GapToPole story={story} /></Panel> },
+    ...(story.circuit ? [{ id: 'lap-animation', tab: 'telemetry' as const, title: 'Lap animation', takeaway: 'The fastest laps racing each other as ghosts, with the camera following one car. Pick drivers and laps, and switch between 2D and 3D.', content: <LapAnimationChapter story={story} /> }] : []),
     {
-      id: 'sectors',
+      id: 'sectors', tab: 'pace' as const,
       title: 'Where the time is',
       takeaway: `Fastest sectors: ${sectorBest.map((n, i) => `S${i + 1} ${drivers.get(n!)?.code ?? '–'}`).join(', ')}. The "ideal lap" adds up each driver's best three sectors.`,
       content: (
@@ -473,10 +576,10 @@ function qualifyingChapters(story: SessionStory): ChapterDef[] {
         </Box>
       ),
     },
-    { id: 'evolution', title: 'Session evolution', takeaway: 'Every push lap through the session. The track gets faster as rubber goes down.', content: <Panel><SessionTimeline story={story} /></Panel> },
+    { id: 'evolution', tab: 'pace' as const, title: 'Session evolution', takeaway: 'Every push lap through the session. The track gets faster as rubber goes down.', content: <Panel><SessionTimeline story={story} /></Panel> },
   ];
-  if (rows[0] && rows[1]) chapters.push({ id: 'head-to-head', title: 'Head to head', takeaway: 'The two best laps compared, metre by metre, and corner by corner. Pick any two laps.', content: <HeadToHeadChapter story={story} defaults={[rows[0].driver, rows[1].driver]} /> });
-  chapters.push({ id: 'corners', title: 'Corners and car setup', takeaway: 'Every car through every corner on its best lap, and the downforce vs top speed trade-off.', content: <CornersChapter story={story} /> });
+  if (rows[0] && rows[1]) chapters.push({ id: 'head-to-head', tab: 'telemetry' as const, title: 'Head to head', takeaway: 'The two best laps compared, metre by metre, and corner by corner. Pick any two laps.', content: <HeadToHeadChapter story={story} defaults={[rows[0].driver, rows[1].driver]} /> });
+  chapters.push({ id: 'corners', tab: 'telemetry' as const, title: 'Corners and car setup', takeaway: 'Every car through every corner on its best lap, and the downforce vs top speed trade-off.', content: <CornersChapter story={story} /> });
   const radio = radioChapter(story);
   if (radio) chapters.push(radio);
   return chapters;
@@ -487,12 +590,12 @@ function qualifyingChapters(story: SessionStory): ChapterDef[] {
 function practiceChapters(story: SessionStory): ChapterDef[] {
   const [f1, f2] = story.fastest;
   const chapters: ChapterDef[] = [
-    { id: 'fastest', title: 'Fastest laps', takeaway: 'One-lap pace. In practice, fuel loads and programmes differ, so read with care.', content: <Panel><FastestLapGaps story={story} /></Panel> },
-    ...(story.circuit ? [{ id: 'lap-animation', title: 'Lap animation', takeaway: 'The fastest laps racing each other as ghosts. Pick drivers and laps, and switch between 2D and 3D.', content: <LapAnimationChapter story={story} /> }] : []),
-    { id: 'long-runs', title: 'Long runs', takeaway: 'Average lap time on stints of 5+ clean laps: the best hint of race pace. Bigger dots are longer runs.', content: <Panel><LongRuns story={story} /></Panel> },
-    { id: 'evolution', title: 'Session evolution', takeaway: 'Every push lap, coloured by tyre.', content: <Panel><SessionTimeline story={story} /></Panel> },
+    { id: 'fastest', tab: 'story' as const, title: 'Fastest laps', takeaway: 'One-lap pace. In practice, fuel loads and programmes differ, so read with care.', content: <Panel><FastestLapGaps story={story} /></Panel> },
+    ...(story.circuit ? [{ id: 'lap-animation', tab: 'telemetry' as const, title: 'Lap animation', takeaway: 'The fastest laps racing each other as ghosts. Pick drivers and laps, and switch between 2D and 3D.', content: <LapAnimationChapter story={story} /> }] : []),
+    { id: 'long-runs', tab: 'pace' as const, title: 'Long runs', takeaway: 'Average lap time on stints of 5+ clean laps: the best hint of race pace. Bigger dots are longer runs.', content: <Panel><LongRuns story={story} /></Panel> },
+    { id: 'evolution', tab: 'pace' as const, title: 'Session evolution', takeaway: 'Every push lap, coloured by tyre.', content: <Panel><SessionTimeline story={story} /></Panel> },
   ];
-  if (f1 && f2) chapters.push({ id: 'head-to-head', title: 'Head to head', takeaway: 'The two fastest laps compared.', content: <HeadToHeadChapter story={story} defaults={[f1.driver, f2.driver]} /> });
+  if (f1 && f2) chapters.push({ id: 'head-to-head', tab: 'telemetry' as const, title: 'Head to head', takeaway: 'The two fastest laps compared.', content: <HeadToHeadChapter story={story} defaults={[f1.driver, f2.driver]} /> });
   const radio = radioChapter(story);
   if (radio) chapters.push(radio);
   return chapters;
@@ -518,6 +621,7 @@ function radioChapter(story: SessionStory): ChapterDef | null {
   ].filter(Boolean);
   return {
     id: 'radio',
+    tab: 'radio' as const,
     title: 'Radio and race control',
     takeaway: `${parts.join(', ')}. Press play to listen; highlight drivers above to see only their messages.`,
     content: (

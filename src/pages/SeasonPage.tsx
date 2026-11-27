@@ -46,6 +46,14 @@ function SeasonContent({ season }: { season: SeasonStory }) {
         {topWinner && ` ${drivers.get(topWinner[0])?.name} has won the most races (${topWinner[1]}).`}
       </Typography>
 
+      <Hub season={season} />
+
+      {season.standings.labels.length > 0 && (
+        <Chapter id="championship" title="Championship" takeaway="Points after every race and sprint. Click a driver in the legend to hide them; double-click to isolate.">
+          <StandingsChart season={season} />
+        </Chapter>
+      )}
+
       <Chapter id="calendar" title="Calendar" takeaway="Pick a weekend to read its story.">
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(4, 1fr)' }, gap: 1.5 }}>
           {season.events.map((e) => {
@@ -85,12 +93,109 @@ function SeasonContent({ season }: { season: SeasonStory }) {
         </Box>
       </Chapter>
 
-      {season.standings.labels.length > 0 && (
-        <Chapter id="championship" title="Championship" takeaway="Points after every race and sprint. Click a driver in the legend to hide them; double-click to isolate.">
-          <StandingsChart season={season} />
-        </Chapter>
-      )}
     </>
+  );
+}
+
+const lastPoints = (p: (number | null)[]) => {
+  for (let i = p.length - 1; i >= 0; i--) if (p[i] != null) return p[i]!;
+  return 0;
+};
+
+/** Top of the season page: latest and next race, then the standings at a glance. */
+function Hub({ season }: { season: SeasonStory }) {
+  const drivers = new Map(season.drivers.map((d) => [d.number, d]));
+  const now = Date.now();
+  const latest = [...season.events].reverse().find((e) => e.sessions.some((s) => Date.parse(s.dateEnd) < now));
+  const next = season.events.find((e) => !e.sessions.some((s) => Date.parse(s.dateEnd) < now));
+  const latestCode = latest && (latest.sessions.find((s) => s.code === 'R' && Date.parse(s.dateEnd) < now)?.code ?? [...latest.sessions].reverse().find((s) => Date.parse(s.dateEnd) < now)?.code);
+  const driverRows = [...season.standings.drivers].map((r) => ({ ...r, total: lastPoints(r.points) })).sort((a, b) => b.total - a.total).slice(0, 10);
+  const teamRows = [...season.standings.teams].map((r) => ({ ...r, total: lastPoints(r.points) })).sort((a, b) => b.total - a.total);
+  const leaderPts = driverRows[0]?.total ?? 0;
+  const teamLeaderPts = teamRows[0]?.total ?? 0;
+  const date = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+
+  return (
+    <Box sx={{ mt: 3 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1.5 }}>
+        {latest && latestCode && (
+          <Card sx={{ borderLeft: `4px solid ${drivers.get(latest.podium[0])?.color ?? colors.accent}` }}>
+            <CardActionArea href={`#/${season.year}/${latest.round}/${latestCode}`} sx={{ p: 2, height: '100%' }}>
+              <Typography variant="overline" sx={{ color: colors.muted }}>
+                Latest · R{latest.round} · {date(latest.dateStart)}
+              </Typography>
+              <Typography variant="h5" sx={{ lineHeight: 1.2 }}>
+                {latest.name}
+              </Typography>
+              <Typography variant="body2" sx={{ color: colors.muted, mt: 0.5 }}>
+                {latest.podium.length ? `Won by ${drivers.get(latest.podium[0])?.name ?? '?'}, ahead of ${latest.podium.slice(1).map((n) => drivers.get(n)?.code ?? n).join(' and ')}. ` : ''}
+                Read the story →
+              </Typography>
+            </CardActionArea>
+          </Card>
+        )}
+        {next ? (
+          <Card sx={{ p: 2 }}>
+            <Typography variant="overline" sx={{ color: colors.muted }}>
+              Next · R{next.round} · {date(next.dateStart)}
+            </Typography>
+            <Typography variant="h5" sx={{ lineHeight: 1.2 }}>
+              {next.name}
+            </Typography>
+            <Typography variant="body2" sx={{ color: colors.muted, mt: 0.5 }}>
+              {next.location}
+              {next.sessions.some((s) => s.code === 'S') && ' · Sprint weekend'}
+            </Typography>
+          </Card>
+        ) : (
+          <Card sx={{ p: 2 }}>
+            <Typography variant="overline" sx={{ color: colors.muted }}>
+              Season complete
+            </Typography>
+            <Typography variant="h5">{driverRows[0] ? `${drivers.get(driverRows[0].driver)?.name} is champion` : 'All races run'}</Typography>
+          </Card>
+        )}
+      </Box>
+
+      {driverRows.length > 0 && (
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '3fr 2fr' }, gap: 1.5, mt: 1.5 }}>
+          <Panel title="Drivers">
+            {driverRows.map((r, i) => {
+              const d = drivers.get(r.driver);
+              return (
+                <Stack key={r.driver} direction="row" spacing={1.5} alignItems="center" sx={{ py: 0.5, borderTop: i ? `1px solid ${colors.border}` : 'none', fontVariantNumeric: 'tabular-nums' }}>
+                  <Typography sx={{ width: 22, color: colors.muted, fontWeight: 700 }}>{i + 1}</Typography>
+                  <Box sx={{ width: 4, height: 18, bgcolor: d?.color, borderRadius: 1 }} />
+                  <Typography sx={{ flex: 1, fontWeight: i === 0 ? 800 : 600 }}>
+                    {d?.name ?? r.driver}
+                    <Typography component="span" variant="body2" sx={{ color: colors.muted, ml: 1, display: { xs: 'none', sm: 'inline' } }}>
+                      {d?.team}
+                    </Typography>
+                  </Typography>
+                  <Typography sx={{ fontWeight: 700 }}>{r.total}</Typography>
+                  <Typography variant="body2" sx={{ width: 52, textAlign: 'right', color: colors.muted }}>
+                    {i ? `−${leaderPts - r.total}` : ''}
+                  </Typography>
+                </Stack>
+              );
+            })}
+          </Panel>
+          <Panel title="Constructors">
+            {teamRows.map((r, i) => (
+              <Stack key={r.team} direction="row" spacing={1.5} alignItems="center" sx={{ py: 0.5, borderTop: i ? `1px solid ${colors.border}` : 'none', fontVariantNumeric: 'tabular-nums' }}>
+                <Typography sx={{ width: 22, color: colors.muted, fontWeight: 700 }}>{i + 1}</Typography>
+                <Box sx={{ width: 4, height: 18, bgcolor: r.color, borderRadius: 1 }} />
+                <Typography sx={{ flex: 1, fontWeight: i === 0 ? 800 : 600 }}>{r.team}</Typography>
+                <Typography sx={{ fontWeight: 700 }}>{r.total}</Typography>
+                <Typography variant="body2" sx={{ width: 52, textAlign: 'right', color: colors.muted }}>
+                  {i ? `−${teamLeaderPts - r.total}` : ''}
+                </Typography>
+              </Stack>
+            ))}
+          </Panel>
+        </Box>
+      )}
+    </Box>
   );
 }
 

@@ -6,17 +6,18 @@ import { subscribeProgress, Progress } from './lib/openf1';
 //   #/                      -> latest session
 //   #/2026                  -> season page
 //   #/2026/20/R             -> session story
+//   #/2026/20/R/telemetry   -> one tab of it
 
 export type Route =
   | { page: 'latest' }
   | { page: 'season'; year: number }
-  | { page: 'session'; year: number; round: number; code: string };
+  | { page: 'session'; year: number; round: number; code: string; tab?: string };
 
 export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
-  const [year, round, code] = parts;
+  const [year, round, code, tab] = parts;
   if (year && /^\d{4}$/.test(year)) {
-    if (round && /^\d+$/.test(round)) return { page: 'session', year: +year, round: +round, code: (code ?? 'R').toUpperCase() };
+    if (round && /^\d+$/.test(round)) return { page: 'session', year: +year, round: +round, code: (code ?? 'R').toUpperCase(), ...(tab ? { tab: tab.toLowerCase() } : {}) };
     return { page: 'season', year: +year };
   }
   return { page: 'latest' };
@@ -24,7 +25,7 @@ export function parseRoute(hash: string): Route {
 
 export function routeHref(route: Route): string {
   if (route.page === 'season') return `#/${route.year}`;
-  if (route.page === 'session') return `#/${route.year}/${route.round}/${route.code}`;
+  if (route.page === 'session') return `#/${route.year}/${route.round}/${route.code}${route.tab && route.tab !== 'story' ? `/${route.tab}` : ''}`;
   return '#/';
 }
 

@@ -16,7 +16,7 @@ export default function App() {
       <TopBar route={route} />
       {route.page === 'latest' && <Latest />}
       {route.page === 'season' && <SeasonPage year={route.year} />}
-      {route.page === 'session' && <SessionPage key={`${route.year}/${route.round}/${route.code}`} year={route.year} round={route.round} code={route.code} />}
+      {route.page === 'session' && <SessionPage key={`${route.year}/${route.round}/${route.code}`} year={route.year} round={route.round} code={route.code} tab={route.tab} />}
     </ThemeProvider>
   );
 }
